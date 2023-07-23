@@ -1,0 +1,4 @@
+h1:efJ3yyi8uW7TdRhTckuKI0/Sl7j1s49gvs7UHcNfB2A=
+20230720134017_initial_schema.sql h1:OM1e5AbUxXPB/GeBDshJPlFmscQ9Ru/3BU/vP5nMcKA=
+20230720134346_seed_vehicle_enums.sql h1:bmFO8q3YBZ1AzsTaULB8E3Lk94vNDtFjbMNCh04ZVHE=
+20230722194028_add_denormalized_vehicle_view.sql h1:+lVc23/WSxgCqy+gk4as2+IEMlqmR3/zhJGBJ8MEfhQ=
