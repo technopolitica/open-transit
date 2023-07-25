@@ -1,6 +1,6 @@
 -- name: FetchVehicle :one
 SELECT * FROM vehicle_denormalized
-WHERE id = $1;
+WHERE id = @vehicle_id AND provider = @provider_id;
 
 -- name: RegisterNewVehicles :copyfrom
 INSERT INTO vehicle_denormalized (

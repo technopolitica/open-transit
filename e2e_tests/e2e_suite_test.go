@@ -2,6 +2,11 @@ package e2e_tests
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"net/url"
@@ -136,16 +141,52 @@ func (ts TestServer) DBConnectionString() (string, error) {
 	return ts.dbContainer.ConnectionString(context.Background())
 }
 
-func NewTestServer(ctx context.Context) (testServer TestServer, err error) {
+func NewTestServer(ctx context.Context, publicKey rsa.PublicKey) (testServer TestServer, err error) {
 	db, dbContainer, err := initDatabase(ctx)
 	if err != nil {
 		return
 	}
 	testServer = TestServer{
 		dbContainer: dbContainer,
-		httpServer:  httptest.NewServer(server.New(db)),
+		httpServer:  httptest.NewServer(server.New(db, publicKey)),
 	}
 	return
+}
+
+type x509EncodedKey struct {
+	rsa.PrivateKey
+}
+
+func (sd x509EncodedKey) MarshalJSON() (data []byte, err error) {
+	encodedKey := x509.MarshalPKCS1PrivateKey(&sd.PrivateKey)
+	if err != nil {
+		return
+	}
+	return json.Marshal(base64.StdEncoding.EncodeToString(encodedKey))
+}
+
+func (sd *x509EncodedKey) UnmarshalJSON(data []byte) (err error) {
+	var base64EncodedKey string
+	err = json.Unmarshal(data, &base64EncodedKey)
+	if err != nil {
+		return
+	}
+	encodedKey, err := base64.StdEncoding.DecodeString(base64EncodedKey)
+	if err != nil {
+		return
+	}
+	parsedKey, err := x509.ParsePKCS1PrivateKey(encodedKey)
+	if err != nil {
+		return
+	}
+	*sd = x509EncodedKey(x509EncodedKey{*parsedKey})
+	return
+}
+
+type setupData struct {
+	DBConnectionString string
+	BaseURL            url.URL
+	PrivateKey         x509EncodedKey
 }
 
 func TestE2E(t *testing.T) {
@@ -156,30 +197,43 @@ func TestE2E(t *testing.T) {
 var dbConn *pgx.Conn
 var apiClient *TestClient
 
-var _ = SynchronizedBeforeSuite(func() []byte {
-	ctx := context.Background()
-	testServer, err := NewTestServer(ctx)
-	Expect(err).NotTo(HaveOccurred())
-	baseURL := testServer.BaseURL()
-	apiClient = NewTestClient(*baseURL)
+const RSA256BitSize = 128 * 8
 
-	DeferCleanup(func() {
+var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
+	privateKey, err := rsa.GenerateKey(rand.Reader, RSA256BitSize)
+	Expect(err).NotTo(HaveOccurred())
+
+	testServer, err := NewTestServer(ctx, privateKey.PublicKey)
+	Expect(err).NotTo(HaveOccurred())
+
+	DeferCleanup(func(ctx context.Context) {
+		dbConn.Close(ctx)
 		testServer.Close(ctx)
 	})
 
 	cs, err := testServer.DBConnectionString()
 	Expect(err).NotTo(HaveOccurred())
-	return []byte(cs)
-}, func(data []byte) {
-	connectionString := string(data)
-	conn, err := pgx.Connect(context.Background(), connectionString)
+	data, err := json.Marshal(setupData{
+		DBConnectionString: cs,
+		BaseURL:            *testServer.BaseURL(),
+		PrivateKey:         x509EncodedKey{*privateKey},
+	})
+	Expect(err).NotTo(HaveOccurred())
+	return data
+}, func(ctx context.Context, data []byte) {
+	var sd setupData
+	err := json.Unmarshal(data, &sd)
+	Expect(err).NotTo(HaveOccurred())
+
+	conn, err := pgx.Connect(ctx, sd.DBConnectionString)
 	Expect(err).NotTo(HaveOccurred())
 	dbConn = conn
+
+	apiClient = NewTestClient(sd.BaseURL, sd.PrivateKey.PrivateKey)
 })
 
-func ClearData(dbConn *pgx.Conn) (err error) {
-	ctx := context.Background()
-	tx, err := dbConn.BeginTx(context.Background(), pgx.TxOptions{})
+func ClearData(ctx context.Context, dbConn *pgx.Conn) (err error) {
+	tx, err := dbConn.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return
 	}
@@ -191,6 +245,7 @@ func ClearData(dbConn *pgx.Conn) (err error) {
 	return
 }
 
-var _ = AfterEach(func() {
-	ClearData(dbConn)
+var _ = AfterEach(OncePerOrdered, func(ctx context.Context) {
+	ClearData(ctx, dbConn)
+	apiClient.Reset()
 })

@@ -15,11 +15,16 @@ import (
 
 const fetchVehicle = `-- name: FetchVehicle :one
 SELECT id, external_id, provider, data_provider, vehicle_type, propulsion_types, attributes, accessibility_attributes, battery_capacity, fuel_capacity, maximum_speed FROM vehicle_denormalized
-WHERE id = $1
+WHERE id = $1 AND provider = $2
 `
 
-func (q *Queries) FetchVehicle(ctx context.Context, id uuid.UUID) (VehicleDenormalized, error) {
-	row := q.db.QueryRow(ctx, fetchVehicle, id)
+type FetchVehicleParams struct {
+	VehicleID  uuid.UUID
+	ProviderID uuid.UUID
+}
+
+func (q *Queries) FetchVehicle(ctx context.Context, arg FetchVehicleParams) (VehicleDenormalized, error) {
+	row := q.db.QueryRow(ctx, fetchVehicle, arg.VehicleID, arg.ProviderID)
 	var i VehicleDenormalized
 	err := row.Scan(
 		&i.ID,

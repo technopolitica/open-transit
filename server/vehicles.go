@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"log"
 	"net/http"
 
@@ -29,21 +28,23 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 			return
 		}
 
-		ctx := context.Background()
+		ctx := r.Context()
 		conn, err := env.db.Acquire(ctx)
 		if err != nil {
 			log.Printf("failed to acquire db connection: %s", err)
 			w.WriteHeader(500)
 			return
 		}
+		defer conn.Release()
 		queries := db.New(conn)
 
 		var params []db.RegisterNewVehiclesParams
 		response := types.BulkApiResponse[types.Vehicle]{
 			Total: len(vehicles),
 		}
+		auth := GetAuthInfo(r)
 		for _, vehicle := range vehicles {
-			errs := types.ValidateVehicle(vehicle)
+			errs := types.ValidateVehicle(vehicle, auth)
 			if len(errs) > 0 {
 				response.Failures = append(response.Failures, types.FailureDetails[types.Vehicle]{
 					Item: vehicle,
@@ -90,16 +91,21 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 	vehiclesRouter.Get("/{vid:.+}", func(w http.ResponseWriter, r *http.Request) {
 		vid := uuid.MustParse(chi.URLParam(r, "vid"))
 
-		ctx := context.Background()
+		ctx := r.Context()
 		conn, err := env.db.Acquire(ctx)
 		if err != nil {
 			log.Printf("failed to acquire db connection: %s", err)
 			w.WriteHeader(500)
 			return
 		}
+		defer conn.Release()
 		queries := db.New(conn)
 
-		vehicle, err := queries.FetchVehicle(ctx, vid)
+		auth := GetAuthInfo(r)
+		vehicle, err := queries.FetchVehicle(ctx, db.FetchVehicleParams{
+			VehicleID:  vid,
+			ProviderID: auth.ProviderId,
+		})
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				w.WriteHeader(404)
