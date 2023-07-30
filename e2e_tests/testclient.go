@@ -40,7 +40,7 @@ func (client *TestClient) authenticateWithAuthToken(signingMethod jwt.SigningMet
 }
 
 func (client *TestClient) AuthenticateWithUnsignedJWT() (err error) {
-	providerId, err := uuid.NewRandom()
+	providerID, err := uuid.NewRandom()
 	if err != nil {
 		return
 	}
@@ -48,16 +48,16 @@ func (client *TestClient) AuthenticateWithUnsignedJWT() (err error) {
 		jwt.RegisteredClaims
 		Provider uuid.UUID `json:"provider_id"`
 	}{
-		Provider: providerId,
+		Provider: providerID,
 	})
 }
 
-func (client *TestClient) AuthenticateAsProvider(providerId uuid.UUID) (err error) {
+func (client *TestClient) AuthenticateAsProvider(providerID uuid.UUID) (err error) {
 	return client.authenticateWithAuthToken(jwt.SigningMethodRS256, &client.signingKey, struct {
 		jwt.RegisteredClaims
 		Provider uuid.UUID `json:"provider_id"`
 	}{
-		Provider: providerId,
+		Provider: providerID,
 	})
 }
 
@@ -102,8 +102,8 @@ func (client *TestClient) RegisterVehicles(vehicles any) (response *http.Respons
 	return client.sendRequestWithDefaultHeaders("POST", client.endpoint("/vehicles"), vehicles)
 }
 
-func (client *TestClient) GetVehicle(vehicleId string) (response *http.Response, err error) {
-	return client.sendRequestWithDefaultHeaders("GET", client.endpoint("/vehicles", vehicleId), nil)
+func (client *TestClient) GetVehicle(vehicleID string) (response *http.Response, err error) {
+	return client.sendRequestWithDefaultHeaders("GET", client.endpoint("/vehicles", vehicleID), nil)
 }
 
 func (client *TestClient) Get(path string) (response *http.Response, err error) {

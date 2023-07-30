@@ -17,10 +17,10 @@ type VehicleAttributes map[string]any
 type AccessibilityAttributes map[string]any
 
 type Vehicle struct {
-	DeviceId                uuid.UUID               `json:"device_id"`
-	ProviderId              uuid.UUID               `json:"provider_id"`
-	DataProviderId          uuid.UUID               `json:"data_provider_id,omitempty"`
-	VehicleId               string                  `json:"vehicle_id"`
+	DeviceID                uuid.UUID               `json:"device_id"`
+	ProviderID              uuid.UUID               `json:"provider_id"`
+	DataProviderID          uuid.UUID               `json:"data_provider_id,omitempty"`
+	VehicleID               string                  `json:"vehicle_id"`
 	VehicleType             VehicleType             `json:"vehicle_type"`
 	VehicleAttributes       VehicleAttributes       `json:"vehicle_attributes"`
 	PropulsionTypes         Set[PropulsionType]     `json:"propulsion_types"`
@@ -34,10 +34,10 @@ func ValidateVehicle(value any, auth AuthInfo) []string {
 	var errs []string
 	switch v := value.(type) {
 	case Vehicle:
-		if v.DeviceId == (uuid.UUID{}) {
+		if v.DeviceID == (uuid.UUID{}) {
 			errs = append(errs, "device_id: null UUID is not allowed")
 		}
-		if v.ProviderId != auth.ProviderId {
+		if v.ProviderID != auth.ProviderID {
 			errs = append(errs, "provider_id: not allowed to register vehicle for another provider")
 		}
 	default:

@@ -40,10 +40,10 @@ var _ = Describe("PropulsionType", func() {
 var _ = Describe("Vehicle", func() {
 	It("compares equal to other vehicle w/ same fields", func() {
 		Expect(Vehicle{
-			DeviceId:        uuid.MustParse("1443963e-7d93-469c-b8e1-a262715c3b49"),
+			DeviceID:        uuid.MustParse("1443963e-7d93-469c-b8e1-a262715c3b49"),
 			PropulsionTypes: NewSet(PropulsionTypeCombustion, PropulsionTypeElectric),
 		}).To(Equal(Vehicle{
-			DeviceId:        uuid.MustParse("1443963e-7d93-469c-b8e1-a262715c3b49"),
+			DeviceID:        uuid.MustParse("1443963e-7d93-469c-b8e1-a262715c3b49"),
 			PropulsionTypes: NewSet(PropulsionTypeElectric, PropulsionTypeCombustion, PropulsionTypeElectric),
 		}))
 	})

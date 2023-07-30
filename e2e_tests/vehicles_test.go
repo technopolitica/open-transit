@@ -35,8 +35,8 @@ func fetchLastPage() types.PaginatedVehiclesResponse {
 
 func MakeValidVehicle(provider uuid.UUID) types.Vehicle {
 	return types.Vehicle{
-		DeviceId:        uuid.New(),
-		ProviderId:      provider,
+		DeviceID:        uuid.New(),
+		ProviderID:      provider,
 		VehicleType:     types.VehicleTypeMoped,
 		PropulsionTypes: types.NewSet(types.PropulsionTypeCombustion, types.PropulsionTypeElectric),
 	}
@@ -67,9 +67,9 @@ var _ = Describe("/vehicles", func() {
 			var validVehicle types.Vehicle
 
 			BeforeEach(func() {
-				providerId, err := uuid.NewRandom()
+				providerID, err := uuid.NewRandom()
 				Expect(err).NotTo(HaveOccurred())
-				validVehicle = MakeValidVehicle(providerId)
+				validVehicle = MakeValidVehicle(providerID)
 			})
 
 			It("returns 401 Unauthorized status", func() {
@@ -92,9 +92,9 @@ var _ = Describe("/vehicles", func() {
 			var validVehicle types.Vehicle
 
 			BeforeEach(func() {
-				providerId, err := uuid.NewRandom()
+				providerID, err := uuid.NewRandom()
 				Expect(err).NotTo(HaveOccurred())
-				validVehicle = MakeValidVehicle(providerId)
+				validVehicle = MakeValidVehicle(providerID)
 			})
 
 			It("returns 401 Unauthorized status", func() {
@@ -108,13 +108,13 @@ var _ = Describe("/vehicles", func() {
 	})
 
 	Context("authenticated as provider", func() {
-		var providerId uuid.UUID
+		var providerID uuid.UUID
 
 		BeforeEach(OncePerOrdered, func() {
 			pid, err := uuid.NewRandom()
-			providerId = pid
+			providerID = pid
 			Expect(err).NotTo(HaveOccurred())
-			err = apiClient.AuthenticateAsProvider(providerId)
+			err = apiClient.AuthenticateAsProvider(providerID)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -122,8 +122,8 @@ var _ = Describe("/vehicles", func() {
 			var invalidVehicle types.Vehicle
 
 			BeforeAll(func() {
-				invalidVehicle = MakeValidVehicle(providerId)
-				invalidVehicle.DeviceId = uuid.UUID{}
+				invalidVehicle = MakeValidVehicle(providerID)
+				invalidVehicle.DeviceID = uuid.UUID{}
 			})
 
 			It("returns a HTTP 400 Bad Request status", func() {
@@ -154,7 +154,7 @@ var _ = Describe("/vehicles", func() {
 			var validVehicle types.Vehicle
 
 			BeforeAll(func() {
-				validVehicle = MakeValidVehicle(providerId)
+				validVehicle = MakeValidVehicle(providerID)
 			})
 
 			It("returns HTTP 201 Created status", func() {
@@ -162,13 +162,13 @@ var _ = Describe("/vehicles", func() {
 			})
 
 			It("fetching the newly registered vehicle returns HTTP 200 OK status", func() {
-				Expect(apiClient.GetVehicle(validVehicle.DeviceId.String())).To(HaveHTTPStatus(http.StatusOK))
+				Expect(apiClient.GetVehicle(validVehicle.DeviceID.String())).To(HaveHTTPStatus(http.StatusOK))
 			})
 
 			It("fetching the newly registered vehicle returns the same vehicle that was registered", func() {
 				expected, err := json.Marshal(validVehicle)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(apiClient.GetVehicle(validVehicle.DeviceId.String())).To(HaveHTTPBody(MatchJSON(
+				Expect(apiClient.GetVehicle(validVehicle.DeviceID.String())).To(HaveHTTPBody(MatchJSON(
 					expected,
 				)))
 			})
@@ -186,9 +186,9 @@ var _ = Describe("/vehicles", func() {
 			var notProvidersVehicle types.Vehicle
 
 			BeforeEach(func() {
-				notProvidersId, err := MakeUUIDExcluding(providerId)
+				notProvidersID, err := MakeUUIDExcluding(providerID)
 				Expect(err).NotTo(HaveOccurred())
-				notProvidersVehicle = MakeValidVehicle(notProvidersId)
+				notProvidersVehicle = MakeValidVehicle(notProvidersID)
 			})
 
 			It("returns HTTP 400 Bad Request status", func() {
@@ -221,20 +221,20 @@ var _ = Describe("/vehicles", func() {
 
 			BeforeAll(func() {
 				By("another provider registering a vehicle")
-				notProvidersId, err := MakeUUIDExcluding(providerId)
+				notProvidersID, err := MakeUUIDExcluding(providerID)
 				Expect(err).NotTo(HaveOccurred())
-				err = apiClient.AuthenticateAsProvider(notProvidersId)
+				err = apiClient.AuthenticateAsProvider(notProvidersID)
 				Expect(err).NotTo(HaveOccurred())
-				notProvidersVehicle = MakeValidVehicle(notProvidersId)
+				notProvidersVehicle = MakeValidVehicle(notProvidersID)
 				_, err = apiClient.RegisterVehicles([]any{notProvidersVehicle})
 				Expect(err).NotTo(HaveOccurred())
 
-				err = apiClient.AuthenticateAsProvider(providerId)
+				err = apiClient.AuthenticateAsProvider(providerID)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
 			It("returns HTTP 404 Not Found status", func() {
-				Expect(apiClient.GetVehicle(notProvidersVehicle.DeviceId.String())).To(HaveHTTPStatus(http.StatusNotFound))
+				Expect(apiClient.GetVehicle(notProvidersVehicle.DeviceID.String())).To(HaveHTTPStatus(http.StatusNotFound))
 			})
 		})
 
@@ -259,7 +259,7 @@ var _ = Describe("/vehicles", func() {
 				var registeredVehicles []types.Vehicle
 				BeforeAll(func() {
 					for i := 0; i < 5; i++ {
-						vehicle := MakeValidVehicle(providerId)
+						vehicle := MakeValidVehicle(providerID)
 						registeredVehicles = append(registeredVehicles, vehicle)
 					}
 					_, err := apiClient.RegisterVehicles(registeredVehicles)

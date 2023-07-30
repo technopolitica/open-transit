@@ -53,10 +53,10 @@ func parseListVehiclesParams(r *http.Request) (params ListVehiclesParams, errs [
 
 func presentVehicle(vehicle db.VehicleDenormalized) types.Vehicle {
 	return types.Vehicle{
-		DeviceId:                vehicle.ID,
-		VehicleId:               vehicle.ExternalID.String,
-		ProviderId:              vehicle.Provider,
-		DataProviderId:          vehicle.DataProvider,
+		DeviceID:                vehicle.ID,
+		VehicleID:               vehicle.ExternalID.String,
+		ProviderID:              vehicle.Provider,
+		DataProviderID:          vehicle.DataProvider,
 		VehicleType:             vehicle.VehicleType,
 		PropulsionTypes:         vehicle.PropulsionTypes,
 		VehicleAttributes:       vehicle.Attributes,
@@ -111,10 +111,10 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 			}
 
 			params = append(params, db.RegisterNewVehiclesParams{
-				ID:                      vehicle.DeviceId,
-				ExternalID:              pgtype.Text{String: vehicle.VehicleId, Valid: vehicle.VehicleId != ""},
-				Provider:                vehicle.ProviderId,
-				DataProvider:            vehicle.DataProviderId,
+				ID:                      vehicle.DeviceID,
+				ExternalID:              pgtype.Text{String: vehicle.VehicleID, Valid: vehicle.VehicleID != ""},
+				Provider:                vehicle.ProviderID,
+				DataProvider:            vehicle.DataProviderID,
 				VehicleType:             vehicle.VehicleType,
 				Attributes:              vehicle.VehicleAttributes,
 				AccessibilityAttributes: vehicle.AccessibilityAttributes,
@@ -172,14 +172,14 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		queries := db.New(conn).WithTx(tx)
 
 		auth := GetAuthInfo(r)
-		count, err := queries.ListVehiclesCount(ctx, auth.ProviderId)
+		count, err := queries.ListVehiclesCount(ctx, auth.ProviderID)
 		if err != nil {
 			log.Printf("failed to execute count query: %s", err)
 			w.WriteHeader(500)
 			return
 		}
 		vehicles, err := queries.ListVehicles(ctx, db.ListVehiclesParams{
-			ProviderID: auth.ProviderId,
+			ProviderID: auth.ProviderID,
 			Limit:      int32(params.Limit),
 			Offset:     int32(params.Offset),
 		})
@@ -264,7 +264,7 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		auth := GetAuthInfo(r)
 		vehicle, err := queries.FetchVehicle(ctx, db.FetchVehicleParams{
 			VehicleID:  vid,
-			ProviderID: auth.ProviderId,
+			ProviderID: auth.ProviderID,
 		})
 		if err != nil {
 			if err == pgx.ErrNoRows {
