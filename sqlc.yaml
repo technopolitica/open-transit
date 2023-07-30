@@ -17,7 +17,7 @@ sql:
           - column: "public.vehicle_denormalized.propulsion_types"
             go_type:
               import: "github.com/technopolitica/open-mobility/types"
-              type: "PropulsionTypeSet"
+              type: "Set[types.PropulsionType]"
           - column: "public.vehicle_denormalized.vehicle_type"
             go_type:
               import: "github.com/technopolitica/open-mobility/types"

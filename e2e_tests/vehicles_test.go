@@ -38,7 +38,7 @@ func MakeValidVehicle(provider uuid.UUID) types.Vehicle {
 		DeviceId:        uuid.New(),
 		ProviderId:      provider,
 		VehicleType:     types.VehicleTypeMoped,
-		PropulsionTypes: types.NewPropulsionTypeSet(types.PropulsionTypeCombustion, types.PropulsionTypeElectric),
+		PropulsionTypes: types.NewSet(types.PropulsionTypeCombustion, types.PropulsionTypeElectric),
 	}
 }
 

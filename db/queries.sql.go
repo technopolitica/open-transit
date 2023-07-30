@@ -105,7 +105,7 @@ type RegisterNewVehiclesParams struct {
 	Provider                uuid.UUID
 	DataProvider            uuid.NullUUID
 	VehicleType             types.VehicleType
-	PropulsionTypes         types.PropulsionTypeSet
+	PropulsionTypes         types.Set[types.PropulsionType]
 	Attributes              types.VehicleAttributes
 	AccessibilityAttributes types.AccessibilityAttributes
 	BatteryCapacity         pgtype.Int4

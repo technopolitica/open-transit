@@ -3,9 +3,6 @@
 package types
 
 import (
-	"encoding/json"
-	"sort"
-
 	"github.com/google/uuid"
 )
 
@@ -19,34 +16,6 @@ type VehicleAttributes map[string]any
 
 type AccessibilityAttributes map[string]any
 
-type PropulsionTypeSet []PropulsionType
-
-func NewPropulsionTypeSet(propulsionTypes ...PropulsionType) PropulsionTypeSet {
-	seen := make(map[PropulsionType]bool, len(propulsionTypes))
-	elements := make([]PropulsionType, 0, len(propulsionTypes))
-	for _, pt := range propulsionTypes {
-		if seen[pt] {
-			continue
-		}
-		seen[pt] = true
-		elements = append(elements, pt)
-	}
-	sort.Slice(elements, func(i, j int) bool {
-		return elements[i] < elements[j]
-	})
-	return elements
-}
-
-func (pts *PropulsionTypeSet) UnmarshalJSON(data []byte) (err error) {
-	var elements []PropulsionType
-	err = json.Unmarshal(data, &elements)
-	if err != nil {
-		return
-	}
-	*pts = NewPropulsionTypeSet(elements...)
-	return
-}
-
 type Vehicle struct {
 	DeviceId                uuid.UUID               `json:"device_id"`
 	ProviderId              uuid.UUID               `json:"provider_id"`
@@ -54,7 +23,7 @@ type Vehicle struct {
 	VehicleId               string                  `json:"vehicle_id"`
 	VehicleType             VehicleType             `json:"vehicle_type"`
 	VehicleAttributes       VehicleAttributes       `json:"vehicle_attributes"`
-	PropulsionTypes         PropulsionTypeSet       `json:"propulsion_types"`
+	PropulsionTypes         Set[PropulsionType]     `json:"propulsion_types"`
 	AccessibilityAttributes AccessibilityAttributes `json:"accessibility_attributes,omitempty"`
 	BatteryCapacity         int                     `json:"battery_capacity,omitempty"`
 	FuelCapacity            int                     `json:"fuel_capacity,omitempty"`
