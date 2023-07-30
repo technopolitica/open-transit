@@ -1,18 +1,18 @@
 CREATE TABLE vehicle_type (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid() CHECK (id <> '00000000-0000-0000-0000-000000000000'),
   name TEXT NOT NULL CHECK (name <> '')
 );
 
 CREATE TABLE propulsion_type (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid() CHECK (id <> '00000000-0000-0000-0000-000000000000'),
   name TEXT NOT NULL CHECK (name <> '')
 );
 
 CREATE TABLE vehicle (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid() CHECK (id <> '00000000-0000-0000-0000-000000000000'),
   external_id TEXT CHECK (external_id <> ''),
-  provider UUID NOT NULL,
-  data_provider UUID,
+  provider UUID NOT NULL CHECK (provider <> '00000000-0000-0000-0000-000000000000'),
+  data_provider UUID NOT NULL,
   vehicle_type UUID NOT NULL REFERENCES vehicle_type(id),
   attributes JSONB DEFAULT '{}',
   accessibility_attributes JSONB DEFAULT '{}',

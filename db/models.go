@@ -19,7 +19,7 @@ type Vehicle struct {
 	ID                      uuid.UUID
 	ExternalID              pgtype.Text
 	Provider                uuid.UUID
-	DataProvider            uuid.NullUUID
+	DataProvider            uuid.UUID
 	VehicleType             uuid.UUID
 	Attributes              []byte
 	AccessibilityAttributes []byte
@@ -32,7 +32,7 @@ type VehicleDenormalized struct {
 	ID                      uuid.UUID
 	ExternalID              pgtype.Text
 	Provider                uuid.UUID
-	DataProvider            uuid.NullUUID
+	DataProvider            uuid.UUID
 	VehicleType             types.VehicleType
 	PropulsionTypes         types.Set[types.PropulsionType]
 	Attributes              types.VehicleAttributes

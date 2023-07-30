@@ -19,7 +19,7 @@ type AccessibilityAttributes map[string]any
 type Vehicle struct {
 	DeviceId                uuid.UUID               `json:"device_id"`
 	ProviderId              uuid.UUID               `json:"provider_id"`
-	DataProviderId          uuid.NullUUID           `json:"data_provider_id,omitempty"`
+	DataProviderId          uuid.UUID               `json:"data_provider_id,omitempty"`
 	VehicleId               string                  `json:"vehicle_id"`
 	VehicleType             VehicleType             `json:"vehicle_type"`
 	VehicleAttributes       VehicleAttributes       `json:"vehicle_attributes"`

@@ -13,7 +13,7 @@ sql:
             go_type: "github.com/google/uuid.UUID"
           - db_type: "uuid"
             nullable: true
-            go_type: "github.com/google/uuid.NullUUID"
+            go_type: "github.com/google/uuid.UUID"
           - column: "public.vehicle_denormalized.propulsion_types"
             go_type:
               import: "github.com/technopolitica/open-mobility/types"

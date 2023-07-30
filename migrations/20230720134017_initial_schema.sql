@@ -3,6 +3,7 @@ CREATE TABLE "public"."vehicle_type" (
     "id" uuid NOT NULL DEFAULT gen_random_uuid(),
     "name" text NOT NULL,
     PRIMARY KEY ("id"),
+    CONSTRAINT "vehicle_type_id_check" CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid),
     CONSTRAINT "vehicle_type_name_check" CHECK (name <> '' :: text)
 );
 
@@ -11,7 +12,7 @@ CREATE TABLE "public"."vehicle" (
     "id" uuid NOT NULL DEFAULT gen_random_uuid(),
     "external_id" text NULL,
     "provider" uuid NOT NULL,
-    "data_provider" uuid NULL,
+    "data_provider" uuid NOT NULL,
     "vehicle_type" uuid NOT NULL,
     "attributes" jsonb NULL DEFAULT '{}',
     "accessibility_attributes" jsonb NULL DEFAULT '{}',
@@ -19,6 +20,8 @@ CREATE TABLE "public"."vehicle" (
     "fuel_capacity" integer NULL,
     "maximum_speed" integer NULL,
     PRIMARY KEY ("id"),
+    CONSTRAINT "vehicle_id_check" CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    CONSTRAINT "vehicle_provider_check" CHECK (provider <> '00000000-0000-0000-0000-000000000000'::uuid),
     CONSTRAINT "vehicle_vehicle_type_fkey" FOREIGN KEY ("vehicle_type") REFERENCES "public"."vehicle_type" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION,
     CONSTRAINT "vehicle_external_id_check" CHECK (external_id <> '' :: text)
 );
@@ -28,6 +31,7 @@ CREATE TABLE "public"."propulsion_type" (
     "id" uuid NOT NULL DEFAULT gen_random_uuid(),
     "name" text NOT NULL,
     PRIMARY KEY ("id"),
+    CONSTRAINT "propulsion_type_id_check" CHECK (id <> '00000000-0000-0000-0000-000000000000'::uuid),
     CONSTRAINT "propulsion_type_name_check" CHECK (name <> '' :: text)
 );
 
