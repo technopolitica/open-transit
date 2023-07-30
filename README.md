@@ -12,14 +12,14 @@ The goals of Open Transit are simple:
 
 Open Transit is very much a work in progress. See below for the status of various modules of MDS.
 
-### 🚫 Authentication & Authorization
+### 🚫 Authentication
 
 Not yet implemented.
 
 ### 🚧 [Agency](https://github.com/openmobilityfoundation/mobility-data-specification/blob/2.0.0/agency/README.md)
 
 - **🚧 POST /vehicles:** Basic vehicle registration implemented; many validations and error messages (such as missing params) not yet implemented.
-- **🚧 GET /vehicles:** Fetching of specific vehicles implemented; listing of vehicles not yet supported; filtering of results by provider not yet implemented.
+- **🧪 GET /vehicles:** Fully implemented including provider authorization via provider_id claim in JWT bearer token. Some edge cases may not be handled or fully tested.
 - **🚫 PUT /vehicles:** Not yet implemented.
 - **🚫 GET /vehicles/status:** Not yet implemented.
 - **🚫 POST /trips:** Not yet implemented.

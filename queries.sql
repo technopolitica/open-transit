@@ -2,6 +2,16 @@
 SELECT * FROM vehicle_denormalized
 WHERE id = @vehicle_id AND provider = @provider_id;
 
+-- name: ListVehicles :many
+SELECT * FROM vehicle_denormalized
+WHERE provider = @provider_id
+LIMIT @limit_::int
+OFFSET @offset_::int;
+
+-- name: ListVehiclesCount :one
+SELECT COUNT(*) FROM vehicle_denormalized
+WHERE provider = @provider_id;
+
 -- name: RegisterNewVehicles :copyfrom
 INSERT INTO vehicle_denormalized (
     id,

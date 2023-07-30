@@ -22,26 +22,28 @@ type AccessibilityAttributes map[string]any
 type PropulsionTypeSet []PropulsionType
 
 func NewPropulsionTypeSet(propulsionTypes ...PropulsionType) PropulsionTypeSet {
-	sort.SliceStable(propulsionTypes, func(i int, j int) bool {
-		return propulsionTypes[i] < propulsionTypes[j]
+	seen := make(map[PropulsionType]bool, len(propulsionTypes))
+	elements := make([]PropulsionType, 0, len(propulsionTypes))
+	for _, pt := range propulsionTypes {
+		if seen[pt] {
+			continue
+		}
+		seen[pt] = true
+		elements = append(elements, pt)
+	}
+	sort.Slice(elements, func(i, j int) bool {
+		return elements[i] < elements[j]
 	})
-	return propulsionTypes
+	return elements
 }
 
-func (pts PropulsionTypeSet) Marshal() ([]byte, error) {
-	sort.SliceStable(pts, func(i int, j int) bool {
-		return pts[i] < pts[j]
-	})
-	return json.Marshal(pts)
-}
-
-func (pts *PropulsionTypeSet) Unmarshal(data []byte) (err error) {
+func (pts *PropulsionTypeSet) UnmarshalJSON(data []byte) (err error) {
 	var elements []PropulsionType
 	err = json.Unmarshal(data, &elements)
 	if err != nil {
 		return
 	}
-	*pts = elements
+	*pts = NewPropulsionTypeSet(elements...)
 	return
 }
 
@@ -73,4 +75,9 @@ func ValidateVehicle(value any, auth AuthInfo) []string {
 		panic("cannot validate unknown type")
 	}
 	return errs
+}
+
+type PaginatedVehiclesResponse struct {
+	PaginatedResponse
+	Vehicles []Vehicle `json:"vehicles"`
 }

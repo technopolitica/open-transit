@@ -96,6 +96,18 @@ func authentication(publicKey *rsa.PublicKey) func(http.Handler) http.Handler {
 	}
 }
 
+func addHostToRequestURL(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Host = r.Host
+		if r.TLS != nil {
+			r.URL.Scheme = "https"
+		} else {
+			r.URL.Scheme = "http"
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // FIXME: probably MUCH better to use JWKS here so we don't have to restart the server to change keys.
 func New(db *pgxpool.Pool, publicKey rsa.PublicKey) *chi.Mux {
 	router := chi.NewRouter()
@@ -103,6 +115,7 @@ func New(db *pgxpool.Pool, publicKey rsa.PublicKey) *chi.Mux {
 	router.Use(middleware.AllowContentType("application/vnd.mds+json"))
 	router.Use(middleware.Heartbeat("/health"))
 	router.Use(middleware.Timeout(15 * time.Second))
+	router.Use(addHostToRequestURL)
 	router.Use(authentication(&publicKey))
 
 	env := Env{db}
