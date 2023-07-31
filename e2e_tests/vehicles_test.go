@@ -2,7 +2,6 @@ package e2e_tests
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 
@@ -11,11 +10,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
+	. "github.com/technopolitica/open-mobility/e2e_tests/matchers"
+	"github.com/technopolitica/open-mobility/e2e_tests/testutils"
 	"github.com/technopolitica/open-mobility/types"
 )
 
-func readJSONBody[T any](res *http.Response, err error) (output T) {
-	Expect(err).NotTo(HaveOccurred())
+func readJSONBody[T any](res *http.Response) (output T) {
 	data, err := io.ReadAll(res.Body)
 	Expect(err).NotTo(HaveOccurred())
 	defer res.Body.Close()
@@ -25,7 +25,7 @@ func readJSONBody[T any](res *http.Response, err error) (output T) {
 }
 
 func fetchFirstPage() types.PaginatedVehiclesResponse {
-	return readJSONBody[types.PaginatedVehiclesResponse](apiClient.ListVehicles(ListVehiclesOptions{Limit: 2}))
+	return readJSONBody[types.PaginatedVehiclesResponse](apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2}))
 }
 
 func fetchLastPage() types.PaginatedVehiclesResponse {
@@ -33,96 +33,72 @@ func fetchLastPage() types.PaginatedVehiclesResponse {
 	return readJSONBody[types.PaginatedVehiclesResponse](apiClient.Get(firstPage.Links.Last))
 }
 
-func MakeValidVehicle(provider uuid.UUID) types.Vehicle {
-	return types.Vehicle{
-		DeviceID:        uuid.New(),
-		ProviderID:      provider,
-		VehicleType:     types.VehicleTypeMoped,
-		PropulsionTypes: types.NewSet(types.PropulsionTypeCombustion, types.PropulsionTypeElectric),
-	}
-}
+func AssertHasStandardUnauthorizedResponse(op func() *http.Response) {
+	It("returns 401 Unauthorized status", func() {
+		Expect(op()).To(HaveHTTPStatus(http.StatusUnauthorized))
+	})
 
-var maxUUIDTries = 5
-
-func MakeUUIDExcluding(excludedUuids ...uuid.UUID) (id uuid.UUID, err error) {
-	var excludedSet map[uuid.UUID]bool
-	tryN := 0
-	for tryN < maxUUIDTries {
-		id, err = uuid.NewRandom()
-		if err != nil {
-			return
-		}
-		if !excludedSet[id] {
-			return
-		}
-		tryN += 1
-	}
-	err = fmt.Errorf("failed to generate unique UUID")
-	return
+	It("has WWW-Authenticate: Bearer header in response", func() {
+		Expect(op()).To(HaveHTTPHeaderWithValue("WWW-Authenticate", `Bearer, charset="UTF-8"`))
+	})
 }
 
 var _ = Describe("/vehicles", func() {
 	Context("unauthenticated", func() {
 		When("user attempts to register a valid vehicle", func() {
-			var validVehicle types.Vehicle
-
+			var validVehicle *types.Vehicle
 			BeforeEach(func() {
-				providerID, err := uuid.NewRandom()
-				Expect(err).NotTo(HaveOccurred())
-				validVehicle = MakeValidVehicle(providerID)
+				providerID := testutils.GenerateRandomUUID()
+				validVehicle = testutils.MakeValidVehicle(providerID)
 			})
 
-			It("returns 401 Unauthorized status", func() {
-				Expect(apiClient.RegisterVehicles([]any{validVehicle})).To(HaveHTTPStatus(401))
+			AssertHasStandardUnauthorizedResponse(func() *http.Response {
+				return apiClient.RegisterVehicles(validVehicle)
 			})
+		})
 
-			It("has WWW-Authenticate: Bearer header in response", func() {
-				Expect(apiClient.RegisterVehicles([]any{validVehicle})).To(HaveHTTPHeaderWithValue("WWW-Authenticate", `Bearer, charset="UTF-8"`))
+		When("user attempts to list vehicles", func() {
+			AssertHasStandardUnauthorizedResponse(func() *http.Response {
+				return apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2})
 			})
 		})
 	})
 
 	Context("authenticated w/ an unsigned JWT", func() {
 		BeforeEach(func() {
-			err := apiClient.AuthenticateWithUnsignedJWT()
-			Expect(err).NotTo(HaveOccurred())
+			apiClient.AuthenticateWithUnsignedJWT()
 		})
 
 		When("user attempts to register a valid vehicle", func() {
-			var validVehicle types.Vehicle
-
+			var validVehicle *types.Vehicle
 			BeforeEach(func() {
-				providerID, err := uuid.NewRandom()
-				Expect(err).NotTo(HaveOccurred())
-				validVehicle = MakeValidVehicle(providerID)
+				providerID := testutils.GenerateRandomUUID()
+				validVehicle = testutils.MakeValidVehicle(providerID)
 			})
 
-			It("returns 401 Unauthorized status", func() {
-				Expect(apiClient.RegisterVehicles([]any{validVehicle})).To(HaveHTTPStatus(401))
+			AssertHasStandardUnauthorizedResponse(func() *http.Response {
+				return apiClient.RegisterVehicles(validVehicle)
 			})
+		})
 
-			It("has WWW-Authenticate: Bearer header in response", func() {
-				Expect(apiClient.RegisterVehicles([]any{validVehicle})).To(HaveHTTPHeaderWithValue("WWW-Authenticate", `Bearer, charset="UTF-8"`))
+		When("user attempts to list vehicles", func() {
+			AssertHasStandardUnauthorizedResponse(func() *http.Response {
+				return apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2})
 			})
 		})
 	})
 
 	Context("authenticated as provider", func() {
 		var providerID uuid.UUID
-
 		BeforeEach(OncePerOrdered, func() {
-			pid, err := uuid.NewRandom()
-			providerID = pid
-			Expect(err).NotTo(HaveOccurred())
-			err = apiClient.AuthenticateAsProvider(providerID)
-			Expect(err).NotTo(HaveOccurred())
+			providerID = testutils.GenerateRandomUUID()
+			apiClient.AuthenticateAsProvider(providerID)
 		})
 
 		When("user attempts to register a single vehicle with the null UUID", Ordered, func() {
-			var invalidVehicle types.Vehicle
-
+			var invalidVehicle *types.Vehicle
 			BeforeAll(func() {
-				invalidVehicle = MakeValidVehicle(providerID)
+				invalidVehicle = testutils.MakeValidVehicle(providerID)
 				invalidVehicle.DeviceID = uuid.UUID{}
 			})
 
@@ -131,30 +107,23 @@ var _ = Describe("/vehicles", func() {
 			})
 
 			It("returns bulk response w/ bad_param error", func() {
-				invalidVehicleJSON, err := json.Marshal(invalidVehicle)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(apiClient.RegisterVehicles([]any{invalidVehicle})).To(HaveHTTPBody(MatchJSON(fmt.Sprintf(`
-					{
-						"success": 0,
-						"total": 1,
-						"failures": [
-							{
-								"item": %s,
-								"error": "bad_param",
-								"error_description": "A validation error occurred",
-								"error_details": ["device_id: null UUID is not allowed"]
-							}
-						]
-					}	
-				`, invalidVehicleJSON))))
+				Expect(apiClient.RegisterVehicles([]any{invalidVehicle})).To(HaveHTTPBody(MatchJSONObject(MatchKeys(IgnoreExtras, Keys{
+					"success": Equal(float64(0)),
+					"total":   Equal(float64(1)),
+					"failures": ConsistOf(MatchKeys(IgnoreExtras, Keys{
+						"error":             Equal("bad_param"),
+						"error_description": Equal("A validation error occurred"),
+						"error_details":     ConsistOf("device_id: null UUID is not allowed"),
+						"item":              MatchJSONObject(invalidVehicle),
+					})),
+				}))))
 			})
 		})
 
 		When("provider registers a valid vehicle that they own", Ordered, func() {
-			var validVehicle types.Vehicle
-
+			var validVehicle *types.Vehicle
 			BeforeAll(func() {
-				validVehicle = MakeValidVehicle(providerID)
+				validVehicle = testutils.MakeValidVehicle(providerID)
 			})
 
 			It("returns HTTP 201 Created status", func() {
@@ -166,29 +135,22 @@ var _ = Describe("/vehicles", func() {
 			})
 
 			It("fetching the newly registered vehicle returns the same vehicle that was registered", func() {
-				expected, err := json.Marshal(validVehicle)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(apiClient.GetVehicle(validVehicle.DeviceID.String())).To(HaveHTTPBody(MatchJSON(
-					expected,
-				)))
+				Expect(apiClient.GetVehicle(validVehicle.DeviceID.String())).To(HaveHTTPBody(MatchJSONObject(validVehicle)))
 			})
 		})
 
 		When("provider attempts to fetch an unregistered vehicle", func() {
 			It("returns HTTP 404 Not Found status", func() {
-				vid, err := uuid.NewRandom()
-				Expect(err).NotTo(HaveOccurred())
+				vid := testutils.GenerateRandomUUID()
 				Expect(apiClient.GetVehicle(vid.String())).To(HaveHTTPStatus(http.StatusNotFound))
 			})
 		})
 
 		When("provider attempts to register a single vehicle that they don't own", func() {
-			var notProvidersVehicle types.Vehicle
-
+			var notProvidersVehicle *types.Vehicle
 			BeforeEach(func() {
-				notProvidersID, err := MakeUUIDExcluding(providerID)
-				Expect(err).NotTo(HaveOccurred())
-				notProvidersVehicle = MakeValidVehicle(notProvidersID)
+				notProvidersID := testutils.MakeUUIDExcluding(providerID)
+				notProvidersVehicle = testutils.MakeValidVehicle(notProvidersID)
 			})
 
 			It("returns HTTP 400 Bad Request status", func() {
@@ -196,41 +158,29 @@ var _ = Describe("/vehicles", func() {
 			})
 
 			It("returns bulk error response w/ bad_param", func() {
-				notProvidersVehicleJSON, err := json.Marshal(notProvidersVehicle)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(apiClient.RegisterVehicles([]any{notProvidersVehicle})).To(HaveHTTPBody(MatchJSON(fmt.Sprintf(`
-				{
-					"success": 0,
-					"total": 1,
-					"failures": [
-						{
-							"item": %s,
-							"error": "bad_param",
-							"error_description": "A validation error occurred",
-							"error_details": ["provider_id: not allowed to register vehicle for another provider"]
-						}
-					]
-				}	
-			`, notProvidersVehicleJSON))))
+				Expect(apiClient.RegisterVehicles([]any{notProvidersVehicle})).To(HaveHTTPBody(MatchJSONObject(MatchKeys(IgnoreExtras, Keys{
+					"success": Equal(float64(0)),
+					"total":   Equal(float64(1)),
+					"failures": ConsistOf(MatchKeys(IgnoreExtras, Keys{
+						"error":             Equal("bad_param"),
+						"error_description": Equal("A validation error occurred"),
+						"error_details":     ConsistOf("provider_id: not allowed to register vehicle for another provider"),
+						"item":              MatchJSONObject(notProvidersVehicle),
+					})),
+				}))))
 			})
 		})
 
 		When("provider attempts to fetch a registered vehicle that they don't own", Ordered, func() {
-			var notProvidersVehicle types.Vehicle
-
+			var notProvidersVehicle *types.Vehicle
 			BeforeAll(func() {
 				By("another provider registering a vehicle")
-				notProvidersID, err := MakeUUIDExcluding(providerID)
-				Expect(err).NotTo(HaveOccurred())
-				err = apiClient.AuthenticateAsProvider(notProvidersID)
-				Expect(err).NotTo(HaveOccurred())
-				notProvidersVehicle = MakeValidVehicle(notProvidersID)
-				_, err = apiClient.RegisterVehicles([]any{notProvidersVehicle})
-				Expect(err).NotTo(HaveOccurred())
+				notProvidersID := testutils.MakeUUIDExcluding(providerID)
+				apiClient.AuthenticateAsProvider(notProvidersID)
+				notProvidersVehicle = testutils.MakeValidVehicle(notProvidersID)
+				apiClient.RegisterVehicles([]any{notProvidersVehicle})
 
-				err = apiClient.AuthenticateAsProvider(providerID)
-				Expect(err).NotTo(HaveOccurred())
+				apiClient.AuthenticateAsProvider(providerID)
 			})
 
 			It("returns HTTP 404 Not Found status", func() {
@@ -241,14 +191,14 @@ var _ = Describe("/vehicles", func() {
 		When("provider requests a list of registered vehicles", func() {
 			When("there are no registered vehicles owned by the requesting provider", func() {
 				It("returns 200 OK status", func() {
-					Expect(apiClient.ListVehicles(ListVehiclesOptions{Limit: 10})).To(HaveHTTPStatus(
+					Expect(apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 10})).To(HaveHTTPStatus(
 						http.StatusOK,
 					))
 				})
 
 				It("returns empty paginated response", func() {
 					Expect(
-						apiClient.ListVehicles(ListVehiclesOptions{Limit: 10}),
+						apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 10}),
 					).To(HaveHTTPBody(MatchJSONObject(MatchKeys(IgnoreExtras, Keys{
 						"vehicles": BeEmpty(),
 					}))))
@@ -259,20 +209,19 @@ var _ = Describe("/vehicles", func() {
 				var registeredVehicles []types.Vehicle
 				BeforeAll(func() {
 					for i := 0; i < 5; i++ {
-						vehicle := MakeValidVehicle(providerID)
-						registeredVehicles = append(registeredVehicles, vehicle)
+						vehicle := testutils.MakeValidVehicle(providerID)
+						registeredVehicles = append(registeredVehicles, *vehicle)
 					}
-					_, err := apiClient.RegisterVehicles(registeredVehicles)
-					Expect(err).NotTo(HaveOccurred())
+					apiClient.RegisterVehicles(registeredVehicles)
 				})
 
 				When("provider requests a list of vehicles w/ a limit smaller than the number of registered vehicles", func() {
 					It("returns HTTP 200 OK status", func() {
-						Expect(apiClient.ListVehicles(ListVehiclesOptions{Limit: 2})).To(HaveHTTPStatus(http.StatusOK))
+						Expect(apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2})).To(HaveHTTPStatus(http.StatusOK))
 					})
 
 					It("returns an array of vehicles of legth = requested limit", func() {
-						Expect(apiClient.ListVehicles(ListVehiclesOptions{Limit: 2})).To(HaveHTTPBody(
+						Expect(apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2})).To(HaveHTTPBody(
 							MatchJSONObject(MatchKeys(IgnoreExtras, Keys{
 								"vehicles": HaveLen(2),
 							})),
@@ -280,7 +229,7 @@ var _ = Describe("/vehicles", func() {
 					})
 
 					It("returns response w/o prev link on first page", func() {
-						Expect(apiClient.ListVehicles(ListVehiclesOptions{Limit: 2})).To(HaveHTTPBody(
+						Expect(apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2})).To(HaveHTTPBody(
 							MatchJSONObject(MatchKeys(IgnoreExtras, Keys{
 								"links": Not(HaveKey("prev")),
 							})),

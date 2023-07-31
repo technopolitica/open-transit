@@ -19,6 +19,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/technopolitica/open-mobility/e2e_tests/testutils"
 	"github.com/technopolitica/open-mobility/server"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -195,7 +196,7 @@ func TestE2E(t *testing.T) {
 }
 
 var dbConn *pgx.Conn
-var apiClient *TestClient
+var apiClient *testutils.TestClient
 
 const RSA256BitSize = 128 * 8
 
@@ -229,7 +230,7 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 	Expect(err).NotTo(HaveOccurred())
 	dbConn = conn
 
-	apiClient = NewTestClient(sd.BaseURL, sd.PrivateKey.PrivateKey)
+	apiClient = testutils.NewTestClient(sd.BaseURL, sd.PrivateKey.PrivateKey)
 })
 
 func ClearData(ctx context.Context, dbConn *pgx.Conn) (err error) {

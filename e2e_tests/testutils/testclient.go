@@ -1,4 +1,4 @@
-package e2e_tests
+package testutils
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	. "github.com/onsi/gomega"
 )
 
 type PaginationLinks struct {
@@ -33,18 +34,16 @@ func (client *TestClient) endpoint(path ...string) *url.URL {
 	return client.baseURL.JoinPath(path...)
 }
 
-func (client *TestClient) authenticateWithAuthToken(signingMethod jwt.SigningMethod, key any, claims jwt.Claims) (err error) {
+func (client *TestClient) authenticateWithAuthToken(signingMethod jwt.SigningMethod, key any, claims jwt.Claims) {
 	authToken := jwt.NewWithClaims(signingMethod, claims)
+	var err error
 	client.authToken, err = authToken.SignedString(key)
-	return
+	Expect(err).NotTo(HaveOccurred())
 }
 
-func (client *TestClient) AuthenticateWithUnsignedJWT() (err error) {
-	providerID, err := uuid.NewRandom()
-	if err != nil {
-		return
-	}
-	return client.authenticateWithAuthToken(jwt.SigningMethodNone, jwt.UnsafeAllowNoneSignatureType, struct {
+func (client *TestClient) AuthenticateWithUnsignedJWT() {
+	providerID := GenerateRandomUUID()
+	client.authenticateWithAuthToken(jwt.SigningMethodNone, jwt.UnsafeAllowNoneSignatureType, struct {
 		jwt.RegisteredClaims
 		Provider uuid.UUID `json:"provider_id"`
 	}{
@@ -52,8 +51,8 @@ func (client *TestClient) AuthenticateWithUnsignedJWT() (err error) {
 	})
 }
 
-func (client *TestClient) AuthenticateAsProvider(providerID uuid.UUID) (err error) {
-	return client.authenticateWithAuthToken(jwt.SigningMethodRS256, &client.signingKey, struct {
+func (client *TestClient) AuthenticateAsProvider(providerID uuid.UUID) {
+	client.authenticateWithAuthToken(jwt.SigningMethodRS256, &client.signingKey, struct {
 		jwt.RegisteredClaims
 		Provider uuid.UUID `json:"provider_id"`
 	}{
@@ -73,40 +72,31 @@ func (client *TestClient) Reset() {
 	}
 }
 
-func (client *TestClient) sendRequestWithDefaultHeaders(method string, endpoint *url.URL, body any) (res *http.Response, err error) {
+func (client *TestClient) sendRequestWithDefaultHeaders(method string, endpoint *url.URL, body any) (res *http.Response) {
 	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		err = fmt.Errorf("failed to serialize JSON payload: %w", err)
-		return
-	}
+	Expect(err).NotTo(HaveOccurred())
 
 	req, err := http.NewRequest(method, endpoint.String(), bytes.NewBuffer(jsonBody))
-	if err != nil {
-		err = fmt.Errorf("failed to create request: %w", err)
-		return
-	}
+	Expect(err).NotTo(HaveOccurred())
 	if client.authToken != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", client.authToken))
 	}
 	req.Header.Set("Content-Type", "application/vnd.mds+json")
 
 	res, err = http.DefaultClient.Do(req)
-	if err != nil {
-		err = fmt.Errorf("failed to send request: %s", err)
-		return
-	}
+	Expect(err).NotTo(HaveOccurred())
 	return
 }
 
-func (client *TestClient) RegisterVehicles(vehicles any) (response *http.Response, err error) {
+func (client *TestClient) RegisterVehicles(vehicles any) (response *http.Response) {
 	return client.sendRequestWithDefaultHeaders("POST", client.endpoint("/vehicles"), vehicles)
 }
 
-func (client *TestClient) GetVehicle(vehicleID string) (response *http.Response, err error) {
+func (client *TestClient) GetVehicle(vehicleID string) (response *http.Response) {
 	return client.sendRequestWithDefaultHeaders("GET", client.endpoint("/vehicles", vehicleID), nil)
 }
 
-func (client *TestClient) Get(path string) (response *http.Response, err error) {
+func (client *TestClient) Get(path string) (response *http.Response) {
 	uri, err := url.ParseRequestURI(path)
 	if err != nil {
 		return
@@ -121,7 +111,7 @@ type ListVehiclesOptions struct {
 	Offset int
 }
 
-func (client *TestClient) ListVehicles(options ListVehiclesOptions) (response *http.Response, err error) {
+func (client *TestClient) ListVehicles(options ListVehiclesOptions) (response *http.Response) {
 	url := client.endpoint("/vehicles")
 	query := url.Query()
 	// Default to a limit of 10 so that we can use the zero value of the options struct to make tests a little more readable.
