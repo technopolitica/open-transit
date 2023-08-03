@@ -71,7 +71,24 @@ func (failure FailureDetails[T]) MarshalJSON() ([]byte, error) {
 }
 
 type BulkApiResponse[T any] struct {
+	Success  int
+	Total    int
+	Failures []FailureDetails[T]
+}
+
+func (response BulkApiResponse[T]) MarshalJSON() ([]byte, error) {
+	// Ensure that we always serialize failures as an array, even if Failures was zero-initialized to nil.
+	failures := response.Failures
+	if failures == nil {
+		failures = make([]FailureDetails[T], 0)
+	}
+	return json.Marshal(struct {
 	Success  int                 `json:"success"`
 	Total    int                 `json:"total"`
 	Failures []FailureDetails[T] `json:"failures"`
+	}{
+		Success:  response.Success,
+		Total:    response.Total,
+		Failures: failures,
+	})
 }
