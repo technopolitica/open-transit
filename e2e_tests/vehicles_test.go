@@ -86,6 +86,37 @@ var _ = Describe("/vehicles", func() {
 				return apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2})
 			})
 		})
+
+		When("user attempts to update a single registered vehicle", func() {
+			var updatedVehicle *types.Vehicle
+			BeforeEach(func() {
+				providerID := testutils.GenerateRandomUUID()
+				validVehicle := testutils.MakeValidVehicle(providerID)
+
+				apiClient.AuthenticateAsProvider(providerID)
+				Expect(apiClient.RegisterVehicles([]any{validVehicle})).To(HaveHTTPStatus(http.StatusCreated))
+				apiClient.Unauthenticate()
+
+				updatedVehicle = validVehicle
+				updatedVehicle.MaximumSpeed = 42
+			})
+
+			AssertHasStandardUnauthorizedResponse(func() *http.Response {
+				return apiClient.UpdateVehicles([]any{updatedVehicle})
+			})
+		})
+
+		When("user attempts to update a single unregistered vehicle", func() {
+			var updatedVehicle *types.Vehicle
+			BeforeEach(func() {
+				providerID := testutils.GenerateRandomUUID()
+				updatedVehicle = testutils.MakeValidVehicle(providerID)
+			})
+
+			AssertHasStandardUnauthorizedResponse(func() *http.Response {
+				return apiClient.UpdateVehicles([]any{updatedVehicle})
+			})
+		})
 	})
 
 	Context("authenticated as provider", func() {
@@ -136,6 +167,135 @@ var _ = Describe("/vehicles", func() {
 
 			It("fetching the newly registered vehicle returns the same vehicle that was registered", func() {
 				Expect(apiClient.GetVehicle(validVehicle.DeviceID.String())).To(HaveHTTPBody(MatchJSONObject(validVehicle)))
+			})
+		})
+
+		When("provider attempts to update a single unregistered vehicle", func() {
+			var updatedVehicle *types.Vehicle
+			BeforeEach(func() {
+				updatedVehicle = testutils.MakeValidVehicle(providerID)
+			})
+
+			It("returns HTTP 400 Bad Request status", func() {
+				Expect(apiClient.UpdateVehicles([]any{updatedVehicle})).To(HaveHTTPStatus(http.StatusBadRequest))
+			})
+
+			It("returns a bulk error response w/ unregistered failure", func() {
+				Expect(apiClient.UpdateVehicles([]any{updatedVehicle})).To(HaveHTTPBody(MatchJSONObject(MatchKeys(IgnoreExtras, Keys{
+					"success": Equal(float64(0)),
+					"total":   Equal(float64(1)),
+					"failures": ConsistOf(MatchKeys(IgnoreExtras, Keys{
+						"error":             Equal("unregistered"),
+						"error_description": Equal("This device_id is unregistered"),
+						"error_details":     ConsistOf("device_id: no vehicle with specified ID registered for current provider"),
+						"item":              MatchJSONObject(updatedVehicle),
+					})),
+				}))))
+			})
+		})
+
+		When("provider attempts to update a single registered vehicle that they don't own", func() {
+			var updatedVehicle *types.Vehicle
+			BeforeEach(func() {
+				otherProvidersID := testutils.MakeUUIDExcluding(providerID)
+				otherProvidersVehicle := testutils.MakeValidVehicle(otherProvidersID)
+				apiClient.AuthenticateAsProvider(otherProvidersID)
+				Expect(apiClient.RegisterVehicles([]any{otherProvidersVehicle})).To(HaveHTTPStatus(http.StatusCreated))
+
+				apiClient.AuthenticateAsProvider(providerID)
+				updatedVehicle = otherProvidersVehicle
+				updatedVehicle.MaximumSpeed = 42
+			})
+
+			It("returns HTTP 400 Bad Request status", func() {
+				Expect(apiClient.UpdateVehicles([]any{updatedVehicle})).To(HaveHTTPStatus(http.StatusBadRequest))
+			})
+
+			It("returns a bulk error response w/ unregistered failure that does not confirm the existence of the vehicle", func() {
+				Expect(apiClient.UpdateVehicles([]any{updatedVehicle})).To(HaveHTTPBody(MatchJSONObject(MatchKeys(IgnoreExtras, Keys{
+					"success": Equal(float64(0)),
+					"total":   Equal(float64(1)),
+					"failures": ConsistOf(MatchKeys(IgnoreExtras, Keys{
+						"error":             Equal("unregistered"),
+						"error_description": Equal("This device_id is unregistered"),
+						"error_details":     ConsistOf("device_id: no vehicle with specified ID registered for current provider"),
+						"item":              MatchJSONObject(updatedVehicle),
+					})),
+				}))))
+			})
+		})
+
+		When("provider attempts to update a single registered vehicle that they own w/ a valid vehicle", func() {
+			var providersVehicles []*types.Vehicle
+			var unownedVehicles []*types.Vehicle
+			var otherProvidersID uuid.UUID
+			var updatedVehicle *types.Vehicle
+			BeforeEach(func() {
+				nVehiclesNotOwned := 2
+				otherProvidersID = testutils.MakeUUIDExcluding(providerID)
+				unownedVehicles = make([]*types.Vehicle, 0, nVehiclesNotOwned)
+				for i := 0; i < nVehiclesNotOwned; i++ {
+					unownedVehicles = append(unownedVehicles, testutils.MakeValidVehicle(otherProvidersID))
+				}
+				apiClient.AuthenticateAsProvider(otherProvidersID)
+				Expect(apiClient.RegisterVehicles(unownedVehicles)).To(HaveHTTPStatus(http.StatusCreated))
+				apiClient.AuthenticateAsProvider(providerID)
+
+				nVehiclesOwned := 2
+				providersVehicles = make([]*types.Vehicle, 0, nVehiclesOwned)
+				for i := 0; i < nVehiclesOwned; i++ {
+					providersVehicles = append(providersVehicles, testutils.MakeValidVehicle(providerID))
+				}
+				Expect(apiClient.RegisterVehicles(providersVehicles)).To(HaveHTTPStatus(http.StatusCreated))
+
+				vehicleToUpdate := testutils.MakeValidVehicle(providerID)
+				Expect(apiClient.RegisterVehicles([]any{vehicleToUpdate})).To(HaveHTTPStatus(http.StatusCreated))
+
+				updatedVehicle = vehicleToUpdate
+				updatedVehicle.MaximumSpeed = 42
+				updatedVehicle.VehicleAttributes = map[string]any{"foo": "bar"}
+				updatedVehicle.PropulsionTypes = types.NewSet(types.PropulsionTypeHydrogenFuelCell, types.PropulsionTypeHybrid)
+			})
+
+			It("returns HTTP 204 No Content status", func() {
+				Expect(apiClient.UpdateVehicles([]any{updatedVehicle})).To(HaveHTTPStatus(http.StatusOK))
+			})
+
+			It("returns a bulk success response", func() {
+				Expect(apiClient.UpdateVehicles([]any{updatedVehicle})).To(HaveHTTPBody(MatchJSONObject(MatchKeys(IgnoreExtras, Keys{
+					"success":  Equal(float64(1)),
+					"total":    Equal(float64(1)),
+					"failures": BeEmpty(),
+				}))))
+			})
+
+			It("updates the vehicle", func() {
+				// Sanity check
+				Expect(apiClient.GetVehicle(updatedVehicle.DeviceID.String())).NotTo(HaveHTTPBody(MatchJSONObject(
+					updatedVehicle,
+				)))
+				Expect(apiClient.UpdateVehicles([]any{updatedVehicle})).To(HaveHTTPStatus(http.StatusOK))
+
+				Expect(apiClient.GetVehicle(updatedVehicle.DeviceID.String())).To(HaveHTTPBody(MatchJSONObject(
+					updatedVehicle,
+				)))
+			})
+
+			It("does NOT update any other vehicles owned by the provider", func() {
+				apiClient.UpdateVehicles([]any{updatedVehicle})
+
+				Expect(apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: len(providersVehicles) + 1})).To(HaveHTTPBody(MatchJSONObject(
+					HaveKeyWithValue("vehicles", ConsistOf(JSONValue(append(providersVehicles, updatedVehicle)))),
+				)))
+			})
+
+			It("does NOT update any other vehicles owned by other providers", func() {
+				apiClient.UpdateVehicles([]any{updatedVehicle})
+
+				apiClient.AuthenticateAsProvider(otherProvidersID)
+				Expect(apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: len(unownedVehicles)})).To(HaveHTTPBody(MatchJSONObject(
+					HaveKeyWithValue("vehicles", ConsistOf(JSONValue(unownedVehicles))),
+				)))
 			})
 		})
 

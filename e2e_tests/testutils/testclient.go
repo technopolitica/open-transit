@@ -60,6 +60,10 @@ func (client *TestClient) AuthenticateAsProvider(providerID uuid.UUID) {
 	})
 }
 
+func (client *TestClient) Unauthenticate() {
+	client.authToken = ""
+}
+
 func (client *TestClient) BaseURL() *url.URL {
 	copy := client.baseURL
 	return &copy
@@ -90,6 +94,10 @@ func (client *TestClient) sendRequestWithDefaultHeaders(method string, endpoint 
 
 func (client *TestClient) RegisterVehicles(vehicles any) (response *http.Response) {
 	return client.sendRequestWithDefaultHeaders("POST", client.endpoint("/vehicles"), vehicles)
+}
+
+func (client *TestClient) UpdateVehicles(vehicles []any) (response *http.Response) {
+	return client.sendRequestWithDefaultHeaders("PUT", client.endpoint("/vehicles"), vehicles)
 }
 
 func (client *TestClient) GetVehicle(vehicleID string) (response *http.Response) {

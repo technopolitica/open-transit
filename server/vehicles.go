@@ -146,6 +146,104 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		response.Success = int(success)
 		render.JSON(w, r, response)
 	})
+	vehiclesRouter.Put("/", func(w http.ResponseWriter, r *http.Request) {
+		var vehicles []types.Vehicle
+		err := render.DecodeJSON(r.Body, &vehicles)
+		if err != nil {
+			log.Printf("malformed Vehicle payload: %s", err)
+			w.WriteHeader(http.StatusBadRequest)
+			render.JSON(w, r, types.ApiError{
+				Type:    types.ApiErrorTypeBadParam,
+				Details: []string{"vehicles payload is not valid JSON"},
+			})
+			return
+		}
+		defer r.Body.Close()
+
+		ctx := r.Context()
+		conn, err := env.db.Acquire(ctx)
+		if err != nil {
+			log.Printf("failed to acquire db connection: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer conn.Release()
+		tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+		defer tx.Rollback(ctx)
+		if err != nil {
+			log.Panicf("failed to start transaction: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		queries := db.New(conn).WithTx(tx)
+
+		response := types.BulkApiResponse[types.Vehicle]{
+			Total: len(vehicles),
+		}
+		auth := GetAuthInfo(r)
+		for _, vehicle := range vehicles {
+			errs := types.ValidateVehicle(vehicle)
+			if len(errs) > 0 {
+				response.Failures = append(response.Failures, types.FailureDetails[types.Vehicle]{
+					Item: vehicle,
+					ApiError: types.ApiError{
+						Type:    types.ApiErrorTypeBadParam,
+						Details: errs,
+					},
+				})
+				continue
+			}
+
+			params := db.UpdateVehicleParams{
+				ID:         vehicle.DeviceID,
+				ExternalID: pgtype.Text{String: vehicle.VehicleID, Valid: vehicle.VehicleID != ""},
+				// NOTE: ensure that we override the provider argument with the user's actual provider ID from their
+				//       auth token so that they can't forge their provider ID.
+				Provider:                auth.ProviderID,
+				DataProvider:            vehicle.DataProviderID,
+				VehicleType:             vehicle.VehicleType,
+				Attributes:              vehicle.VehicleAttributes,
+				AccessibilityAttributes: vehicle.AccessibilityAttributes,
+				PropulsionTypes:         vehicle.PropulsionTypes,
+				BatteryCapacity:         pgtype.Int4{Int32: int32(vehicle.BatteryCapacity), Valid: vehicle.BatteryCapacity > 0},
+				FuelCapacity:            pgtype.Int4{Int32: int32(vehicle.FuelCapacity), Valid: vehicle.FuelCapacity > 0},
+				MaximumSpeed:            pgtype.Int4{Int32: int32(vehicle.MaximumSpeed), Valid: vehicle.MaximumSpeed > 0},
+			}
+			_, err := queries.UpdateVehicle(ctx, params)
+			if err != nil {
+				var apiError types.ApiError
+				if err == pgx.ErrNoRows {
+					apiError = types.ApiError{
+						Type:    types.ApiErrorTypeUnregistered,
+						Details: []string{"device_id: no vehicle with specified ID registered for current provider"},
+					}
+				} else {
+					log.Printf("failed to write to db: %s", err)
+				}
+				response.Failures = append(response.Failures, types.FailureDetails[types.Vehicle]{
+					Item:     vehicle,
+					ApiError: apiError,
+				})
+				continue
+			}
+			response.Success += 1
+		}
+
+		err = tx.Commit(ctx)
+		if err != nil {
+			log.Printf("failed to commit transaction: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// No successful updates, we should notify the caller.
+		if response.Success == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+		render.JSON(w, r, response)
+	})
 	vehiclesRouter.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		params, errs := parseListVehiclesParams(r)
 		if len(errs) > 0 {

@@ -112,3 +112,51 @@ type RegisterNewVehiclesParams struct {
 	FuelCapacity            pgtype.Int4
 	MaximumSpeed            pgtype.Int4
 }
+
+const updateVehicle = `-- name: UpdateVehicle :one
+UPDATE vehicle_denormalized SET
+    external_id = $1,
+    data_provider = $2,
+    vehicle_type = $3,
+    propulsion_types = $4,
+    attributes = $5,
+    accessibility_attributes = $6,
+    battery_capacity = $7,
+    fuel_capacity = $8,
+    maximum_speed = $9
+WHERE id = $10 AND provider = $11
+RETURNING id
+`
+
+type UpdateVehicleParams struct {
+	ExternalID              pgtype.Text
+	DataProvider            uuid.UUID
+	VehicleType             types.VehicleType
+	PropulsionTypes         types.Set[types.PropulsionType]
+	Attributes              types.VehicleAttributes
+	AccessibilityAttributes types.AccessibilityAttributes
+	BatteryCapacity         pgtype.Int4
+	FuelCapacity            pgtype.Int4
+	MaximumSpeed            pgtype.Int4
+	ID                      uuid.UUID
+	Provider                uuid.UUID
+}
+
+func (q *Queries) UpdateVehicle(ctx context.Context, arg UpdateVehicleParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, updateVehicle,
+		arg.ExternalID,
+		arg.DataProvider,
+		arg.VehicleType,
+		arg.PropulsionTypes,
+		arg.Attributes,
+		arg.AccessibilityAttributes,
+		arg.BatteryCapacity,
+		arg.FuelCapacity,
+		arg.MaximumSpeed,
+		arg.ID,
+		arg.Provider,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}

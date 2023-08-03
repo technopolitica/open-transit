@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// ENUM(unknown, bad_param, missing_param, already_registered)
+// ENUM(unknown, bad_param, missing_param, already_registered, unregistered)
 type ApiErrorType int
 
 type ApiError struct {
@@ -24,6 +24,8 @@ func (res ApiError) Description() string {
 		return "A required parameter is missing"
 	case ApiErrorTypeAlreadyRegistered:
 		return "A vehicle with device_id is already registered"
+	case ApiErrorTypeUnregistered:
+		return "This device_id is unregistered"
 	default:
 		return "An unknown error occurred"
 	}
@@ -83,9 +85,9 @@ func (response BulkApiResponse[T]) MarshalJSON() ([]byte, error) {
 		failures = make([]FailureDetails[T], 0)
 	}
 	return json.Marshal(struct {
-	Success  int                 `json:"success"`
-	Total    int                 `json:"total"`
-	Failures []FailureDetails[T] `json:"failures"`
+		Success  int                 `json:"success"`
+		Total    int                 `json:"total"`
+		Failures []FailureDetails[T] `json:"failures"`
 	}{
 		Success:  response.Success,
 		Total:    response.Total,

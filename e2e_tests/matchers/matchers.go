@@ -21,33 +21,39 @@ func parseJSONObject(actual any) (object map[string]any, err error) {
 	return
 }
 
-func MatchJSONObject(arg any) OmegaMatcher {
-	matcher, ok := arg.(OmegaMatcher)
-	if ok {
-		return WithTransform(parseJSONObject, matcher)
-	}
-
-	switch match := arg.(type) {
+func normalizeToJSONString(actual any) ([]byte, error) {
+	switch a := actual.(type) {
 	case []byte:
+		return a, nil
 	case string:
-		matcher = MatchJSON(match)
+		return []byte(a), nil
 	default:
-		jsonString, err := json.Marshal(match)
+		return json.Marshal(a)
+	}
+}
+
+func MatchJSONObject(matchWith any) OmegaMatcher {
+	switch matchWith := matchWith.(type) {
+	case OmegaMatcher:
+		return WithTransform(parseJSONObject, matchWith)
+	default:
+		jsonString, err := json.Marshal(matchWith)
 		if err != nil {
 			// KLUDGE: probably should deal with this error instead of panic...
 			panic(err)
 		}
-		matcher = MatchJSON(jsonString)
+		return WithTransform(normalizeToJSONString, MatchJSON(jsonString))
 	}
-	transformOrPassthrough := func(actual any) ([]byte, error) {
-		switch a := actual.(type) {
-		case []byte:
-			return a, nil
-		case string:
-			return []byte(a), nil
-		default:
-			return json.Marshal(a)
-		}
+}
+
+func JSONValue(value any) (output any) {
+	serializedValue, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
 	}
-	return WithTransform(transformOrPassthrough, matcher)
+	err = json.Unmarshal(serializedValue, &output)
+	if err != nil {
+		panic(err)
+	}
+	return output
 }

@@ -21,17 +21,20 @@ const (
 	ApiErrorTypeMissingParam
 	// ApiErrorTypeAlreadyRegistered is a ApiErrorType of type Already_registered.
 	ApiErrorTypeAlreadyRegistered
+	// ApiErrorTypeUnregistered is a ApiErrorType of type Unregistered.
+	ApiErrorTypeUnregistered
 )
 
 var ErrInvalidApiErrorType = errors.New("not a valid ApiErrorType")
 
-const _ApiErrorTypeName = "unknownbad_parammissing_paramalready_registered"
+const _ApiErrorTypeName = "unknownbad_parammissing_paramalready_registeredunregistered"
 
 var _ApiErrorTypeMap = map[ApiErrorType]string{
 	ApiErrorTypeUnknown:           _ApiErrorTypeName[0:7],
 	ApiErrorTypeBadParam:          _ApiErrorTypeName[7:16],
 	ApiErrorTypeMissingParam:      _ApiErrorTypeName[16:29],
 	ApiErrorTypeAlreadyRegistered: _ApiErrorTypeName[29:47],
+	ApiErrorTypeUnregistered:      _ApiErrorTypeName[47:59],
 }
 
 // String implements the Stringer interface.
@@ -54,6 +57,7 @@ var _ApiErrorTypeValue = map[string]ApiErrorType{
 	_ApiErrorTypeName[7:16]:  ApiErrorTypeBadParam,
 	_ApiErrorTypeName[16:29]: ApiErrorTypeMissingParam,
 	_ApiErrorTypeName[29:47]: ApiErrorTypeAlreadyRegistered,
+	_ApiErrorTypeName[47:59]: ApiErrorTypeUnregistered,
 }
 
 // ParseApiErrorType attempts to convert a string to a ApiErrorType.
