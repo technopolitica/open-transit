@@ -20,7 +20,7 @@ Not yet implemented.
 
 - **🚧 POST /vehicles:** Basic vehicle registration implemented; many validations and error messages (such as missing params) not yet implemented.
 - **🧪 GET /vehicles:** Fully implemented including provider authorization via provider_id claim in JWT bearer token. Some edge cases may not be handled or fully tested.
-- **🚫 PUT /vehicles:** Not yet implemented.
+- **🚧 PUT /vehicles:** Basic vehicle updates implemented including only authorizing providers to update their own vehicles; many validations and error messages (such as missing params) not yet implemented.
 - **🚫 GET /vehicles/status:** Not yet implemented.
 - **🚫 POST /trips:** Not yet implemented.
 - **🚫 POST /telemetry:** Not yet implemented.
