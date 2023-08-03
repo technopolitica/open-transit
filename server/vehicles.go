@@ -81,6 +81,7 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 			})
 			return
 		}
+		defer r.Body.Close()
 
 		ctx := r.Context()
 		conn, err := env.db.Acquire(ctx)
