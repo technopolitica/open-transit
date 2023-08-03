@@ -99,7 +99,10 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		}
 		auth := GetAuthInfo(r)
 		for _, vehicle := range vehicles {
-			errs := types.ValidateVehicle(vehicle, auth)
+			errs := types.ValidateVehicle(vehicle)
+			if vehicle.ProviderID != auth.ProviderID {
+				errs = append(errs, "provider_id: not allowed to register vehicle for another provider")
+			}
 			if len(errs) > 0 {
 				response.Failures = append(response.Failures, types.FailureDetails[types.Vehicle]{
 					Item: vehicle,

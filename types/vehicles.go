@@ -30,15 +30,12 @@ type Vehicle struct {
 	MaximumSpeed            int                     `json:"maximum_speed"`
 }
 
-func ValidateVehicle(value any, auth AuthInfo) []string {
+func ValidateVehicle(value any) []string {
 	var errs []string
 	switch v := value.(type) {
 	case Vehicle:
 		if v.DeviceID == (uuid.UUID{}) {
 			errs = append(errs, "device_id: null UUID is not allowed")
-		}
-		if v.ProviderID != auth.ProviderID {
-			errs = append(errs, "provider_id: not allowed to register vehicle for another provider")
 		}
 	default:
 		panic("cannot validate unknown type")
