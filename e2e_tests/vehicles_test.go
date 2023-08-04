@@ -62,6 +62,24 @@ var _ = Describe("/vehicles", func() {
 				return apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2})
 			})
 		})
+
+		When("user attempts to update a valid vehicle", func() {
+			var updatedVehicle *types.Vehicle
+			BeforeEach(func() {
+				providerID := testutils.GenerateRandomUUID()
+				vehicle := testutils.MakeValidVehicle(providerID)
+				apiClient.AuthenticateAsProvider(providerID)
+				Expect(apiClient.RegisterVehicles([]any{vehicle})).To(HaveHTTPStatus(http.StatusCreated))
+				apiClient.Unauthenticate()
+
+				updatedVehicle = vehicle
+				updatedVehicle.FuelCapacity = 42
+			})
+
+			AssertHasStandardUnauthorizedResponse(func() *http.Response {
+				return apiClient.UpdateVehicles([]any{updatedVehicle})
+			})
+		})
 	})
 
 	Context("authenticated w/ an unsigned JWT", func() {
