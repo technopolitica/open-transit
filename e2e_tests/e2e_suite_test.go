@@ -11,117 +11,21 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path"
 	"testing"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/technopolitica/open-mobility/devutils"
 	"github.com/technopolitica/open-mobility/e2e_tests/testutils"
 	"github.com/technopolitica/open-mobility/server"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-var dbConfig = struct {
-	username string
-	password string
-	port     nat.Port
-	dbname   string
-}{
-	username: "postgres",
-	password: "postgres",
-	port:     nat.Port("5432/tcp"),
-	dbname:   "test",
-}
-
-func getConnectionString(host string, port nat.Port) string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable", dbConfig.username, dbConfig.password, host, port.Int(), dbConfig.dbname)
-}
-
-func startDbContainer(ctx context.Context) (container *postgres.PostgresContainer, connectionString string, err error) {
-	container, err = postgres.RunContainer(ctx,
-		postgres.WithDatabase(dbConfig.dbname),
-		postgres.WithUsername(dbConfig.username),
-		postgres.WithPassword(dbConfig.password),
-		testcontainers.WithImage("docker.io/postgres:14-alpine"),
-		testcontainers.WithWaitStrategy(wait.ForSQL(dbConfig.port, "pgx", func(host string, port nat.Port) string {
-			return getConnectionString(host, port)
-		})),
-	)
-	if err != nil {
-		err = fmt.Errorf("failed to initialize database server: %s", err)
-		return
-	}
-	host, err := container.ContainerIP(ctx)
-	if err != nil {
-		err = fmt.Errorf("failed to fetch db container host: %s", err)
-		return
-	}
-	connectionString = getConnectionString(host, dbConfig.port)
-	return
-}
-
-func initDatabase(ctx context.Context) (db *pgxpool.Pool, dbContainer *postgres.PostgresContainer, err error) {
-	dbContainer, dbConnectionString, err := startDbContainer(ctx)
-	if err != nil {
-		return
-	}
-
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		err = fmt.Errorf("failed to detect working directory: %s", err)
-		return
-	}
-	_, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: "arigaio/atlas:0.12.0-alpine",
-			Cmd: []string{
-				"migrate", "apply",
-				"--url", dbConnectionString,
-				"--dir", "file:///migrations",
-			},
-			Mounts: testcontainers.ContainerMounts{
-				testcontainers.ContainerMount{
-					Source: testcontainers.GenericBindMountSource{
-						HostPath: fmt.Sprintf("%s/../migrations", workingDirectory),
-					},
-					Target: "/migrations",
-				},
-			},
-			WaitingFor: wait.ForExit(),
-		},
-		Started: true,
-	})
-	if err != nil {
-		err = fmt.Errorf("failed to apply schema migration: %s", err)
-		return
-	}
-
-	hostConnectionString, err := dbContainer.ConnectionString(ctx)
-	if err != nil {
-		err = fmt.Errorf("failed to fetch host connection string %s", err)
-		return
-	}
-	db, err = pgxpool.New(ctx, hostConnectionString)
-	if err != nil {
-		err = fmt.Errorf("failed to open DB connection: %s", err)
-		return
-	}
-	_, err = db.Exec(ctx, fmt.Sprintf("CREATE DATABASE original_%s WITH TEMPLATE %s", dbConfig.dbname, dbConfig.dbname))
-	if err != nil {
-		err = fmt.Errorf("failed to create test database copy")
-		return
-	}
-
-	return
-}
-
 type TestServer struct {
-	dbContainer *postgres.PostgresContainer
+	dbContainer devutils.DBContainer
 	httpServer  *httptest.Server
 }
 
@@ -138,12 +42,25 @@ func (ts TestServer) BaseURL() *url.URL {
 	return url
 }
 
-func (ts TestServer) DBConnectionString() (string, error) {
-	return ts.dbContainer.ConnectionString(context.Background())
-}
-
-func NewTestServer(ctx context.Context, publicKey rsa.PublicKey) (testServer TestServer, err error) {
-	db, dbContainer, err := initDatabase(ctx)
+func StartTestServer(ctx context.Context, publicKey rsa.PublicKey) (testServer TestServer, err error) {
+	dbContainer, err := devutils.StartDBContainer(ctx)
+	if err != nil {
+		return
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	rootDir := path.Join(cwd, "..")
+	err = dbContainer.MigrateToLatest(ctx, rootDir)
+	if err != nil {
+		return
+	}
+	dbConnectionURL, err := dbContainer.ExternalConnectionURL(ctx)
+	if err != nil {
+		return
+	}
+	db, err := pgxpool.New(ctx, dbConnectionURL.String())
 	if err != nil {
 		return
 	}
@@ -151,7 +68,30 @@ func NewTestServer(ctx context.Context, publicKey rsa.PublicKey) (testServer Tes
 		dbContainer: dbContainer,
 		httpServer:  httptest.NewServer(server.New(db, publicKey)),
 	}
+	err = testServer.initialize(ctx)
 	return
+}
+
+func (server TestServer) initialize(ctx context.Context) (err error) {
+	dbConnectionURL, err := server.DBConnectionURL(ctx)
+	if err != nil {
+		return
+	}
+	db, err := pgx.Connect(ctx, dbConnectionURL.String())
+	if err != nil {
+		err = fmt.Errorf("failed to open DB connection: %s", err)
+		return
+	}
+	_, err = db.Exec(ctx, fmt.Sprintf("CREATE DATABASE original_%[1]s WITH TEMPLATE %[1]s", dbConnectionURL.DBName))
+	if err != nil {
+		err = fmt.Errorf("failed to create test database copy")
+		return
+	}
+	return
+}
+
+func (server TestServer) DBConnectionURL(ctx context.Context) (connectionURL devutils.ConnectionURL, err error) {
+	return server.dbContainer.ExternalConnectionURL(ctx)
 }
 
 type x509EncodedKey struct {
@@ -185,9 +125,9 @@ func (sd *x509EncodedKey) UnmarshalJSON(data []byte) (err error) {
 }
 
 type setupData struct {
-	DBConnectionString string
-	BaseURL            url.URL
-	PrivateKey         x509EncodedKey
+	DBConnectionURL devutils.ConnectionURL
+	BaseURL         url.URL
+	PrivateKey      x509EncodedKey
 }
 
 func TestE2E(t *testing.T) {
@@ -195,6 +135,7 @@ func TestE2E(t *testing.T) {
 	RunSpecs(t, "e2e")
 }
 
+var dbname string
 var dbConn *pgx.Conn
 var apiClient *testutils.TestClient
 
@@ -204,7 +145,7 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 	privateKey, err := rsa.GenerateKey(rand.Reader, RSA256BitSize)
 	Expect(err).NotTo(HaveOccurred())
 
-	testServer, err := NewTestServer(ctx, privateKey.PublicKey)
+	testServer, err := StartTestServer(ctx, privateKey.PublicKey)
 	Expect(err).NotTo(HaveOccurred())
 
 	DeferCleanup(func(ctx context.Context) {
@@ -212,12 +153,12 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 		testServer.Close(ctx)
 	})
 
-	cs, err := testServer.DBConnectionString()
+	dbConnectionURL, err := testServer.DBConnectionURL(ctx)
 	Expect(err).NotTo(HaveOccurred())
 	data, err := json.Marshal(setupData{
-		DBConnectionString: cs,
-		BaseURL:            *testServer.BaseURL(),
-		PrivateKey:         x509EncodedKey{*privateKey},
+		DBConnectionURL: dbConnectionURL,
+		BaseURL:         *testServer.BaseURL(),
+		PrivateKey:      x509EncodedKey{*privateKey},
 	})
 	Expect(err).NotTo(HaveOccurred())
 	return data
@@ -226,23 +167,24 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 	err := json.Unmarshal(data, &sd)
 	Expect(err).NotTo(HaveOccurred())
 
-	conn, err := pgx.Connect(ctx, sd.DBConnectionString)
+	conn, err := pgx.Connect(ctx, sd.DBConnectionURL.String())
 	Expect(err).NotTo(HaveOccurred())
 	dbConn = conn
+	dbname = sd.DBConnectionURL.DBName
 
 	apiClient = testutils.NewTestClient(sd.BaseURL, sd.PrivateKey.PrivateKey)
 })
 
 func ClearData(ctx context.Context, dbConn *pgx.Conn) (err error) {
-	tx, err := dbConn.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := dbConn.Begin(ctx)
 	if err != nil {
 		return
 	}
-	_, err = tx.Exec(ctx, fmt.Sprintf("DROP DATABASE %s", dbConfig.dbname))
+	_, err = tx.Exec(ctx, fmt.Sprintf("DROP DATABASE %s", dbname))
 	if err != nil {
 		return
 	}
-	_, err = tx.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s WITH TEMPLATE original_%s", dbConfig.dbname, dbConfig.dbname))
+	_, err = tx.Exec(ctx, fmt.Sprintf("CREATE DATABASE %[1]s WITH TEMPLATE original_%[1]s", dbname))
 	return
 }
 
