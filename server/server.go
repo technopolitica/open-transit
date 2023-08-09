@@ -15,7 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/technopolitica/open-mobility/types"
+	"github.com/technopolitica/open-mobility/domain"
 )
 
 type Env struct {
@@ -24,12 +24,12 @@ type Env struct {
 
 type authClaims struct {
 	jwt.RegisteredClaims
-	types.AuthInfo
+	domain.AuthInfo
 }
 
-func GetAuthInfo(r *http.Request) (auth types.AuthInfo) {
+func GetAuthInfo(r *http.Request) (auth domain.AuthInfo) {
 	ctx := r.Context()
-	auth, ok := ctx.Value(ContextKeyAuth).(types.AuthInfo)
+	auth, ok := ctx.Value(ContextKeyAuth).(domain.AuthInfo)
 	if !ok {
 		panic("missing required AuthClaims")
 	}
@@ -58,7 +58,7 @@ func parseBearerToken(r *http.Request) (bearerToken string, err error) {
 	return
 }
 
-func checkAuthentication(r *http.Request, publicKey *rsa.PublicKey) (authInfo types.AuthInfo, err error) {
+func checkAuthentication(r *http.Request, publicKey *rsa.PublicKey) (authInfo domain.AuthInfo, err error) {
 	bearerToken, err := parseBearerToken(r)
 	if err != nil {
 		return

@@ -4,7 +4,7 @@
 // Build Date:
 // Built By:
 
-package types
+package domain
 
 import (
 	"database/sql/driver"

@@ -5,15 +5,15 @@ import (
 
 	"github.com/google/uuid"
 	. "github.com/onsi/gomega"
-	"github.com/technopolitica/open-mobility/types"
+	"github.com/technopolitica/open-mobility/domain"
 )
 
-func MakeValidVehicle(provider uuid.UUID) *types.Vehicle {
-	return &types.Vehicle{
+func MakeValidVehicle(provider uuid.UUID) *domain.Vehicle {
+	return &domain.Vehicle{
 		DeviceID:        uuid.New(),
 		ProviderID:      provider,
-		VehicleType:     types.VehicleTypeMoped,
-		PropulsionTypes: types.NewSet(types.PropulsionTypeCombustion, types.PropulsionTypeElectric),
+		VehicleType:     domain.VehicleTypeMoped,
+		PropulsionTypes: domain.NewSet(domain.PropulsionTypeCombustion, domain.PropulsionTypeElectric),
 	}
 }
 

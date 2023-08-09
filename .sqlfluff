@@ -1,0 +1,18 @@
+[sqlfluff]
+templater = placeholder
+
+[sqlfluff:templater:placeholder]
+param_regex = @(?P<param_name>[\w_]+)
+limit = 0
+offset = 0
+id = '21fc6e11-ee06-463d-aac5-45c510a58cc9'
+provider = '21fc6e11-ee06-463d-aac5-45c510a58cc9'
+external_id = ''
+data_provider = '21fc6e11-ee06-463d-aac5-45c510a58cc9'
+vehicle_type = ''
+propulsion_types = '{}'
+attributes = '{}'
+accessibility_attributes = '{}'
+battery_capacity = 0
+fuel_capacity = 0
+maximum_speed = 0

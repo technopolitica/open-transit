@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,10 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/technopolitica/open-mobility/db"
-	"github.com/technopolitica/open-mobility/types"
+	"github.com/technopolitica/open-mobility/domain"
 )
 
 const MAX_RESULTS_LIMIT = 20
@@ -51,32 +50,16 @@ func parseListVehiclesParams(r *http.Request) (params ListVehiclesParams, errs [
 	return
 }
 
-func presentVehicle(vehicle db.VehicleDenormalized) types.Vehicle {
-	return types.Vehicle{
-		DeviceID:                vehicle.ID,
-		VehicleID:               vehicle.ExternalID.String,
-		ProviderID:              vehicle.Provider,
-		DataProviderID:          vehicle.DataProvider,
-		VehicleType:             vehicle.VehicleType,
-		PropulsionTypes:         vehicle.PropulsionTypes,
-		VehicleAttributes:       vehicle.Attributes,
-		AccessibilityAttributes: vehicle.AccessibilityAttributes,
-		BatteryCapacity:         int(vehicle.BatteryCapacity.Int32),
-		FuelCapacity:            int(vehicle.FuelCapacity.Int32),
-		MaximumSpeed:            int(vehicle.MaximumSpeed.Int32),
-	}
-}
-
 func NewVehiclesRouter(env *Env) *chi.Mux {
 	vehiclesRouter := chi.NewRouter()
 	vehiclesRouter.Post("/", func(w http.ResponseWriter, r *http.Request) {
-		var vehicles []types.Vehicle
+		var vehicles []domain.Vehicle
 		err := render.DecodeJSON(r.Body, &vehicles)
 		if err != nil {
 			log.Printf("malformed Vehicle payload: %s", err)
-			w.WriteHeader(400)
-			render.JSON(w, r, types.ApiError{
-				Type:    types.ApiErrorTypeBadParam,
+			w.WriteHeader(http.StatusBadRequest)
+			render.JSON(w, r, domain.ApiError{
+				Type:    domain.ApiErrorTypeBadParam,
 				Details: []string{"vehicles payload is not valid JSON"},
 			})
 			return
@@ -87,73 +70,80 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		conn, err := env.db.Acquire(ctx)
 		if err != nil {
 			log.Printf("failed to acquire db connection: %s", err)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		defer conn.Release()
-		queries := db.New(conn)
+		vehicleRepository := db.NewVehicleRepository(conn)
 
-		var params []db.RegisterNewVehiclesParams
-		response := types.BulkApiResponse[types.Vehicle]{
+		nServerErrors := 0
+		response := domain.BulkApiResponse[domain.Vehicle]{
 			Total: len(vehicles),
 		}
 		auth := GetAuthInfo(r)
 		for _, vehicle := range vehicles {
-			errs := types.ValidateVehicle(vehicle)
+			errs := domain.ValidateVehicle(vehicle)
 			if vehicle.ProviderID != auth.ProviderID {
 				errs = append(errs, "provider_id: not allowed to register vehicle for another provider")
 			}
 			if len(errs) > 0 {
-				response.Failures = append(response.Failures, types.FailureDetails[types.Vehicle]{
+				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
 					Item: vehicle,
-					ApiError: types.ApiError{
-						Type:    types.ApiErrorTypeBadParam,
+					ApiError: domain.ApiError{
+						Type:    domain.ApiErrorTypeBadParam,
 						Details: errs,
 					},
 				})
 				continue
 			}
+			err := vehicleRepository.InsertVehicle(ctx, vehicle)
 
-			params = append(params, db.RegisterNewVehiclesParams{
-				ID:                      vehicle.DeviceID,
-				ExternalID:              pgtype.Text{String: vehicle.VehicleID, Valid: vehicle.VehicleID != ""},
-				Provider:                vehicle.ProviderID,
-				DataProvider:            vehicle.DataProviderID,
-				VehicleType:             vehicle.VehicleType,
-				Attributes:              vehicle.VehicleAttributes,
-				AccessibilityAttributes: vehicle.AccessibilityAttributes,
-				PropulsionTypes:         vehicle.PropulsionTypes,
-				BatteryCapacity:         pgtype.Int4{Int32: int32(vehicle.BatteryCapacity), Valid: vehicle.BatteryCapacity > 0},
-				FuelCapacity:            pgtype.Int4{Int32: int32(vehicle.FuelCapacity), Valid: vehicle.FuelCapacity > 0},
-				MaximumSpeed:            pgtype.Int4{Int32: int32(vehicle.MaximumSpeed), Valid: vehicle.MaximumSpeed > 0},
-			})
+			if err != nil && errors.Is(err, db.ErrConflict) {
+				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
+					Item: vehicle,
+					ApiError: domain.ApiError{
+						Type:    domain.ApiErrorTypeAlreadyRegistered,
+						Details: []string{"A vehicle with device_id is already registered"},
+					},
+				})
+				continue
+			}
+
+			if err != nil {
+				log.Printf("failed to insert vehicle: %s", err)
+				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
+					Item: vehicle,
+					ApiError: domain.ApiError{
+						Type:    domain.ApiErrorTypeUnknown,
+						Details: []string{"An unknown error has occurred"},
+					},
+				})
+				nServerErrors += 1
+				continue
+			}
+
+			response.Success += 1
 		}
-		success, err := queries.RegisterNewVehicles(ctx, params)
-		if err != nil {
-			log.Printf("failed to write to db: %s", err)
-			w.WriteHeader(500)
-			return
+
+		httpStatus := http.StatusCreated
+		// If all of the inserts failed and all of the errors were classified as server errors,
+		// return a http.StatusInternalServerError Internal Server Error response to notify the client.
+		if nServerErrors == response.Total {
+			httpStatus = http.StatusInternalServerError
+		} else if response.Success == 0 { // Otherwise if no inserts were successful at least some of them were bad requests
+			httpStatus = http.StatusBadRequest
 		}
-		// No successful inserts, we should notify the caller.
-		if success == 0 {
-			w.WriteHeader(400)
-		} else {
-			w.WriteHeader(201)
-		}
-		// NOTE: potential integer overflow issue here when processing >2billion vehicles,
-		//       though in practice the request size should limited to avoid DOS attacks so we
-		//       should never need to worry about this.
-		response.Success = int(success)
+		w.WriteHeader(httpStatus)
 		render.JSON(w, r, response)
 	})
 	vehiclesRouter.Put("/", func(w http.ResponseWriter, r *http.Request) {
-		var vehicles []types.Vehicle
+		var vehicles []domain.Vehicle
 		err := render.DecodeJSON(r.Body, &vehicles)
 		if err != nil {
 			log.Printf("malformed Vehicle payload: %s", err)
 			w.WriteHeader(http.StatusBadRequest)
-			render.JSON(w, r, types.ApiError{
-				Type:    types.ApiErrorTypeBadParam,
+			render.JSON(w, r, domain.ApiError{
+				Type:    domain.ApiErrorTypeBadParam,
 				Details: []string{"vehicles payload is not valid JSON"},
 			})
 			return
@@ -168,88 +158,82 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 			return
 		}
 		defer conn.Release()
-		tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-		defer tx.Rollback(ctx)
-		if err != nil {
-			log.Panicf("failed to start transaction: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		queries := db.New(conn).WithTx(tx)
+		vehicleRepository := db.NewVehicleRepository(conn)
 
-		response := types.BulkApiResponse[types.Vehicle]{
+		nServerErrors := 0
+		response := domain.BulkApiResponse[domain.Vehicle]{
 			Total: len(vehicles),
 		}
 		auth := GetAuthInfo(r)
 		for _, vehicle := range vehicles {
-			errs := types.ValidateVehicle(vehicle)
+			errs := domain.ValidateVehicle(vehicle)
 			if len(errs) > 0 {
-				response.Failures = append(response.Failures, types.FailureDetails[types.Vehicle]{
+				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
 					Item: vehicle,
-					ApiError: types.ApiError{
-						Type:    types.ApiErrorTypeBadParam,
+					ApiError: domain.ApiError{
+						Type:    domain.ApiErrorTypeBadParam,
 						Details: errs,
 					},
 				})
 				continue
 			}
-
-			params := db.UpdateVehicleParams{
-				ID:         vehicle.DeviceID,
-				ExternalID: pgtype.Text{String: vehicle.VehicleID, Valid: vehicle.VehicleID != ""},
-				// NOTE: ensure that we override the provider argument with the user's actual provider ID from their
-				//       auth token so that they can't forge their provider ID.
-				Provider:                auth.ProviderID,
-				DataProvider:            vehicle.DataProviderID,
-				VehicleType:             vehicle.VehicleType,
-				Attributes:              vehicle.VehicleAttributes,
-				AccessibilityAttributes: vehicle.AccessibilityAttributes,
-				PropulsionTypes:         vehicle.PropulsionTypes,
-				BatteryCapacity:         pgtype.Int4{Int32: int32(vehicle.BatteryCapacity), Valid: vehicle.BatteryCapacity > 0},
-				FuelCapacity:            pgtype.Int4{Int32: int32(vehicle.FuelCapacity), Valid: vehicle.FuelCapacity > 0},
-				MaximumSpeed:            pgtype.Int4{Int32: int32(vehicle.MaximumSpeed), Valid: vehicle.MaximumSpeed > 0},
-			}
-			_, err := queries.UpdateVehicle(ctx, params)
-			if err != nil {
-				var apiError types.ApiError
-				if err == pgx.ErrNoRows {
-					apiError = types.ApiError{
-						Type:    types.ApiErrorTypeUnregistered,
-						Details: []string{"device_id: no vehicle with specified ID registered for current provider"},
-					}
-				} else {
-					log.Printf("failed to write to db: %s", err)
-				}
-				response.Failures = append(response.Failures, types.FailureDetails[types.Vehicle]{
-					Item:     vehicle,
-					ApiError: apiError,
+			if vehicle.ProviderID != auth.ProviderID {
+				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
+					Item: vehicle,
+					ApiError: domain.ApiError{
+						Type:    domain.ApiErrorTypeBadParam,
+						Details: []string{"provider_id: does not match user's provider ID"},
+					},
 				})
 				continue
 			}
+
+			err := vehicleRepository.UpdateVehicle(ctx, vehicle)
+
+			if err != nil && errors.Is(err, db.ErrNotFound) {
+				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
+					Item: vehicle,
+					ApiError: domain.ApiError{
+						Type:    domain.ApiErrorTypeUnregistered,
+						Details: []string{},
+					},
+				})
+				continue
+			}
+
+			if err != nil {
+				log.Printf("failed to update vehicle: %s", err)
+				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
+					Item: vehicle,
+					ApiError: domain.ApiError{
+						Type:    domain.ApiErrorTypeUnknown,
+						Details: []string{"An unknown error has occurred"},
+					},
+				})
+				nServerErrors += 1
+				continue
+			}
+
 			response.Success += 1
 		}
 
-		err = tx.Commit(ctx)
-		if err != nil {
-			log.Printf("failed to commit transaction: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+		httpStatus := http.StatusOK
+		// If all of the inserts failed and all of the errors were classified as server errors,
+		// return a http.StatusInternalServerError Internal Server Error response to notify the client.
+		if nServerErrors == response.Total {
+			httpStatus = http.StatusInternalServerError
+		} else if response.Success == 0 { // Otherwise if no inserts were successful at least some of them were bad requests
+			httpStatus = http.StatusBadRequest
 		}
-
-		// No successful updates, we should notify the caller.
-		if response.Success == 0 {
-			w.WriteHeader(http.StatusBadRequest)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
+		w.WriteHeader(httpStatus)
 		render.JSON(w, r, response)
 	})
 	vehiclesRouter.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		params, errs := parseListVehiclesParams(r)
 		if len(errs) > 0 {
-			w.WriteHeader(400)
-			render.JSON(w, r, types.ApiError{
-				Type:    types.ApiErrorTypeBadParam,
+			w.WriteHeader(http.StatusBadRequest)
+			render.JSON(w, r, domain.ApiError{
+				Type:    domain.ApiErrorTypeBadParam,
 				Details: errs,
 			})
 			return
@@ -259,45 +243,30 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		conn, err := env.db.Acquire(ctx)
 		if err != nil {
 			log.Printf("failed to acquire db connection: %s", err)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		defer conn.Release()
 		// KLUDGE: can we do a multi-statement batch command here instead of acquiring a transaction?
-		tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-		defer tx.Rollback(ctx)
-		if err != nil {
-			log.Panicf("failed to start transaction: %s", err)
-			w.WriteHeader(500)
-			return
-		}
-		queries := db.New(conn).WithTx(tx)
+		vehicleRepository := db.NewVehicleRepository(conn)
 
 		auth := GetAuthInfo(r)
-		count, err := queries.ListVehiclesCount(ctx, auth.ProviderID)
-		if err != nil {
-			log.Printf("failed to execute count query: %s", err)
-			w.WriteHeader(500)
-			return
-		}
-		vehicles, err := queries.ListVehicles(ctx, db.ListVehiclesParams{
+		page, err := vehicleRepository.ListVehicles(ctx, domain.ListVehiclesParams{
 			ProviderID: auth.ProviderID,
 			Limit:      int32(params.Limit),
 			Offset:     int32(params.Offset),
 		})
 		if err != nil {
 			log.Printf("failed execute query: %s", err)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		tx.Commit(ctx)
-
-		baseURL := types.URL{URL: r.URL}
+		baseURL := domain.URL{URL: r.URL}
 		first := baseURL.ModifyQuery(func(query *url.Values) {
 			query.Set("page[offset]", "0")
 		})
-		lastOffset := (int(count) / params.Limit) * params.Limit
+		lastOffset := (int(page.Total) / params.Limit) * params.Limit
 		last := baseURL.ModifyQuery(func(query *url.Values) {
 			query.Set("page[offset]", fmt.Sprint(lastOffset))
 		})
@@ -308,7 +277,7 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 			prevOffset = lastOffset
 		}
 		hasPrev := prevOffset >= 0
-		var prev types.URL
+		var prev domain.URL
 		if hasPrev {
 			prev = baseURL.ModifyQuery(func(query *url.Values) {
 				query.Set("page[offset]", fmt.Sprint(prevOffset))
@@ -316,35 +285,31 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		}
 		nextOffset := params.Offset + params.Limit
 		hasNext := nextOffset <= lastOffset
-		var next types.URL
+		var next domain.URL
 		if hasNext {
 			next = baseURL.ModifyQuery(func(query *url.Values) {
 				query.Set("page[offset]", fmt.Sprint(nextOffset))
 			})
 		}
 
-		w.WriteHeader(200)
-		presentedVehicles := make([]types.Vehicle, 0, len(vehicles))
-		for _, v := range vehicles {
-			presentedVehicles = append(presentedVehicles, presentVehicle(v))
-		}
+		w.WriteHeader(http.StatusOK)
 		// FIXME: we can't use render.JSON here because the default json.Marshal implementation
 		// escapes HTML characters by default (including the ampersand '&'), which breaks
 		// the rendering of URLs...
 		w.Header().Set("Content-Type", "application/json")
 		encoder := json.NewEncoder(w)
 		encoder.SetEscapeHTML(false)
-		err = encoder.Encode(types.PaginatedVehiclesResponse{
-			PaginatedResponse: types.PaginatedResponse{
+		err = encoder.Encode(domain.PaginatedVehiclesResponse{
+			PaginatedResponse: domain.PaginatedResponse{
 				Version: "2.0.0",
-				Links: types.PaginationLinks{
+				Links: domain.PaginationLinks{
 					First: first.String(),
 					Last:  last.String(),
 					Prev:  prev.String(),
 					Next:  next.String(),
 				},
 			},
-			Vehicles: presentedVehicles,
+			Vehicles: page.Items,
 		})
 		if err != nil {
 			panic(err)
@@ -357,29 +322,31 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		conn, err := env.db.Acquire(ctx)
 		if err != nil {
 			log.Printf("failed to acquire db connection: %s", err)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		defer conn.Release()
-		queries := db.New(conn)
+		vehicleRepository := db.NewVehicleRepository(conn)
 
 		auth := GetAuthInfo(r)
-		vehicle, err := queries.FetchVehicle(ctx, db.FetchVehicleParams{
+		vehicle, err := vehicleRepository.FetchVehicle(ctx, domain.FetchVehicleParams{
 			VehicleID:  vid,
 			ProviderID: auth.ProviderID,
 		})
-		if err != nil {
-			if err == pgx.ErrNoRows {
-				w.WriteHeader(404)
-				return
-			}
-			log.Printf("failed to fetch vehicle: %s", err)
-			w.WriteHeader(500)
+
+		if err != nil && errors.Is(err, db.ErrNotFound) {
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
-		w.WriteHeader(200)
-		render.JSON(w, r, presentVehicle(vehicle))
+		if err != nil {
+			log.Printf("failed to fetch vehicle: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		render.JSON(w, r, vehicle)
 	})
 	return vehiclesRouter
 }

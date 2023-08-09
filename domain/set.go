@@ -1,7 +1,8 @@
-package types
+package domain
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"golang.org/x/exp/constraints"
@@ -33,4 +34,12 @@ func (pts *Set[T]) UnmarshalJSON(data []byte) (err error) {
 	}
 	*pts = NewSet(elements...)
 	return
+}
+
+func Stringify[T fmt.Stringer](items []T) []string {
+	strs := make([]string, 0, len(items))
+	for _, item := range items {
+		strs = append(strs, item.String())
+	}
+	return strs
 }

@@ -1,4 +1,9 @@
-package types
+package domain
+
+type Page[T any] struct {
+	Items []T
+	Total int64
+}
 
 type PaginationLinks struct {
 	First string `json:"first,omitempty"`

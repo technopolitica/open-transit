@@ -1,4 +1,3 @@
-//go:generate go run diffmigrations.go
 //go:generate go run github.com/kyleconroy/sqlc/cmd/sqlc@v1.19.1 generate
 
 package main

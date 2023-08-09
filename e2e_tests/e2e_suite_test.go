@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -19,13 +17,13 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/technopolitica/open-mobility/devutils"
+	"github.com/onsi/gomega/format"
 	"github.com/technopolitica/open-mobility/e2e_tests/testutils"
 	"github.com/technopolitica/open-mobility/server"
 )
 
 type TestServer struct {
-	dbContainer devutils.DBContainer
+	dbContainer DBContainer
 	httpServer  *httptest.Server
 }
 
@@ -43,25 +41,23 @@ func (ts TestServer) BaseURL() *url.URL {
 }
 
 func StartTestServer(ctx context.Context, publicKey rsa.PublicKey) (testServer TestServer, err error) {
-	dbContainer, err := devutils.StartDBContainer(ctx)
+	dbContainer, err := StartDBContainer(ctx)
 	if err != nil {
 		return
 	}
-	cwd, err := os.Getwd()
+	err = dbContainer.MigrateToLatest(ctx)
 	if err != nil {
-		return
-	}
-	rootDir := path.Join(cwd, "..")
-	err = dbContainer.MigrateToLatest(ctx, rootDir)
-	if err != nil {
+		err = fmt.Errorf("failed to migrate DB: %w", err)
 		return
 	}
 	dbConnectionURL, err := dbContainer.ExternalConnectionURL(ctx)
 	if err != nil {
+		err = fmt.Errorf("failed to obtain DB connection info: %w", err)
 		return
 	}
 	db, err := pgxpool.New(ctx, dbConnectionURL.String())
 	if err != nil {
+		err = fmt.Errorf("failed to connect to DB: %w", err)
 		return
 	}
 	testServer = TestServer{
@@ -69,6 +65,9 @@ func StartTestServer(ctx context.Context, publicKey rsa.PublicKey) (testServer T
 		httpServer:  httptest.NewServer(server.New(db, publicKey)),
 	}
 	err = testServer.initialize(ctx)
+	if err != nil {
+		err = fmt.Errorf("failed to initialize server: %w", err)
+	}
 	return
 }
 
@@ -90,7 +89,7 @@ func (server TestServer) initialize(ctx context.Context) (err error) {
 	return
 }
 
-func (server TestServer) DBConnectionURL(ctx context.Context) (connectionURL devutils.ConnectionURL, err error) {
+func (server TestServer) DBConnectionURL(ctx context.Context) (connectionURL ConnectionURL, err error) {
 	return server.dbContainer.ExternalConnectionURL(ctx)
 }
 
@@ -125,7 +124,7 @@ func (sd *x509EncodedKey) UnmarshalJSON(data []byte) (err error) {
 }
 
 type setupData struct {
-	DBConnectionURL devutils.ConnectionURL
+	DBConnectionURL ConnectionURL
 	BaseURL         url.URL
 	PrivateKey      x509EncodedKey
 }
@@ -142,6 +141,8 @@ var apiClient *testutils.TestClient
 const RSA256BitSize = 128 * 8
 
 var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
+	format.UseStringerRepresentation = true
+
 	privateKey, err := rsa.GenerateKey(rand.Reader, RSA256BitSize)
 	Expect(err).NotTo(HaveOccurred())
 

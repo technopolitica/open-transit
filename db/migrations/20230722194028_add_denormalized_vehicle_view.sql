@@ -1,24 +1,30 @@
-CREATE VIEW vehicle_denormalized AS
+-- +goose Up
+CREATE OR REPLACE VIEW vehicle_denormalized AS
 SELECT
-    v.id,
-    v.external_id,
-    v.provider,
-    v.data_provider,
-    vt.name AS vehicle_type,
-    array_agg(pt.name)::TEXT[] AS propulsion_types,
-    v.attributes,
-    v.accessibility_attributes,
-    v.battery_capacity,
-    v.fuel_capacity,
-    v.maximum_speed
-FROM vehicle AS v
-  JOIN vehicle_type AS vt ON vt.id = v.vehicle_type
-  JOIN vehicle_propulsion_type AS vpt ON vpt.vehicle = v.id
-  JOIN propulsion_type AS pt ON pt.id = vpt.propulsion_type
-GROUP BY v.id, vt.name;
+    vehicle.id,
+    vehicle.external_id,
+    vehicle.provider,
+    vehicle.data_provider,
+    vehicle_type.name AS vehicle_type,
+    vehicle.attributes,
+    vehicle.accessibility_attributes,
+    vehicle.battery_capacity,
+    vehicle.fuel_capacity,
+    vehicle.maximum_speed,
+    propulsion_type.names_arr AS propulsion_types
+FROM vehicle AS vehicle
+CROSS JOIN LATERAL (
+    SELECT ARRAY_AGG(propulsion_type.name) AS names_arr
+    FROM vehicle_propulsion_type AS vpt
+    INNER JOIN propulsion_type ON propulsion_type.id = vpt.propulsion_type
+    WHERE vpt.vehicle = vehicle.id
+    GROUP BY vehicle.id
+) AS propulsion_type
+INNER JOIN vehicle_type ON vehicle_type.id = vehicle.vehicle_type;
 
-CREATE OR REPLACE FUNCTION insert_denormalized_vehicle()
-  RETURNS trigger
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION INSERT_DENORMALIZED_VEHICLE()
+RETURNS TRIGGER
 AS $$
 BEGIN
   INSERT INTO vehicle (
@@ -38,14 +44,14 @@ BEGIN
       NEW.external_id,
       NEW.provider,
       NEW.data_provider,
-      vt.id,
+      vehicle_type.id,
       NEW.attributes,
       NEW.accessibility_attributes,
       NEW.battery_capacity,
       NEW.fuel_capacity,
       NEW.maximum_speed
-  FROM vehicle_type AS vt
-  WHERE vt.name = NEW.vehicle_type;
+  FROM vehicle_type
+  WHERE vehicle_type.name = NEW.vehicle_type;
   
   INSERT INTO vehicle_propulsion_type(
     vehicle,
@@ -60,14 +66,16 @@ BEGIN
   RETURN NEW;
 END
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
-CREATE TRIGGER on_vehicle_denormalized_insert
+CREATE OR REPLACE TRIGGER on_vehicle_denormalized_insert
 INSTEAD OF INSERT ON vehicle_denormalized
 FOR EACH ROW
-EXECUTE PROCEDURE insert_denormalized_vehicle();
+EXECUTE PROCEDURE INSERT_DENORMALIZED_VEHICLE();
 
-CREATE OR REPLACE FUNCTION update_denormalized_vehicle()
-  RETURNS trigger
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION UPDATE_DENORMALIZED_VEHICLE()
+RETURNS TRIGGER
 AS $$
 BEGIN
   UPDATE vehicle SET (
@@ -85,14 +93,14 @@ BEGIN
         NEW.external_id,
         NEW.provider,
         NEW.data_provider,
-        vt.id,
+        vehicle_type.id,
         NEW.attributes,
         NEW.accessibility_attributes,
         NEW.battery_capacity,
         NEW.fuel_capacity,
         NEW.maximum_speed
-    FROM vehicle_type AS vt
-    WHERE vt.name = NEW.vehicle_type
+    FROM vehicle_type
+    WHERE vehicle_type.name = NEW.vehicle_type
   ) WHERE id = NEW.id;
   
   -- Remove all existing propulsion type associations for the vehicle and
@@ -113,8 +121,9 @@ BEGIN
   RETURN NEW;
 END
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
-CREATE TRIGGER on_vehicle_denormalized_update
+CREATE OR REPLACE TRIGGER on_vehicle_denormalized_update
 INSTEAD OF UPDATE ON vehicle_denormalized
 FOR EACH ROW
-EXECUTE PROCEDURE update_denormalized_vehicle();
+EXECUTE PROCEDURE UPDATE_DENORMALIZED_VEHICLE();

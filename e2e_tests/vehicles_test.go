@@ -10,9 +10,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
+	"github.com/technopolitica/open-mobility/domain"
 	. "github.com/technopolitica/open-mobility/e2e_tests/matchers"
 	"github.com/technopolitica/open-mobility/e2e_tests/testutils"
-	"github.com/technopolitica/open-mobility/types"
 )
 
 func readJSONBody[T any](res *http.Response) (output T) {
@@ -24,13 +24,13 @@ func readJSONBody[T any](res *http.Response) (output T) {
 	return
 }
 
-func fetchFirstPage() types.PaginatedVehiclesResponse {
-	return readJSONBody[types.PaginatedVehiclesResponse](apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2}))
+func fetchFirstPage() domain.PaginatedVehiclesResponse {
+	return readJSONBody[domain.PaginatedVehiclesResponse](apiClient.ListVehicles(testutils.ListVehiclesOptions{Limit: 2}))
 }
 
-func fetchLastPage() types.PaginatedVehiclesResponse {
+func fetchLastPage() domain.PaginatedVehiclesResponse {
 	firstPage := fetchFirstPage()
-	return readJSONBody[types.PaginatedVehiclesResponse](apiClient.Get(firstPage.Links.Last))
+	return readJSONBody[domain.PaginatedVehiclesResponse](apiClient.Get(firstPage.Links.Last))
 }
 
 func AssertHasStandardUnauthorizedResponse(op func() *http.Response) {
@@ -46,7 +46,7 @@ func AssertHasStandardUnauthorizedResponse(op func() *http.Response) {
 var _ = Describe("/vehicles", func() {
 	Context("unauthenticated", func() {
 		When("user attempts to register a valid vehicle", func() {
-			var validVehicle *types.Vehicle
+			var validVehicle *domain.Vehicle
 			BeforeEach(func() {
 				providerID := testutils.GenerateRandomUUID()
 				validVehicle = testutils.MakeValidVehicle(providerID)
@@ -64,7 +64,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("user attempts to update a valid vehicle", func() {
-			var updatedVehicle *types.Vehicle
+			var updatedVehicle *domain.Vehicle
 			BeforeEach(func() {
 				providerID := testutils.GenerateRandomUUID()
 				vehicle := testutils.MakeValidVehicle(providerID)
@@ -88,7 +88,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("user attempts to register a valid vehicle", func() {
-			var validVehicle *types.Vehicle
+			var validVehicle *domain.Vehicle
 			BeforeEach(func() {
 				providerID := testutils.GenerateRandomUUID()
 				validVehicle = testutils.MakeValidVehicle(providerID)
@@ -106,7 +106,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("user attempts to update a single registered vehicle", func() {
-			var updatedVehicle *types.Vehicle
+			var updatedVehicle *domain.Vehicle
 			BeforeEach(func() {
 				providerID := testutils.GenerateRandomUUID()
 				validVehicle := testutils.MakeValidVehicle(providerID)
@@ -125,7 +125,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("user attempts to update a single unregistered vehicle", func() {
-			var updatedVehicle *types.Vehicle
+			var updatedVehicle *domain.Vehicle
 			BeforeEach(func() {
 				providerID := testutils.GenerateRandomUUID()
 				updatedVehicle = testutils.MakeValidVehicle(providerID)
@@ -145,7 +145,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("user attempts to register a single vehicle with the null UUID", Ordered, func() {
-			var invalidVehicle *types.Vehicle
+			var invalidVehicle *domain.Vehicle
 			BeforeAll(func() {
 				invalidVehicle = testutils.MakeValidVehicle(providerID)
 				invalidVehicle.DeviceID = uuid.UUID{}
@@ -170,7 +170,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("provider registers a valid vehicle that they own", Ordered, func() {
-			var validVehicle *types.Vehicle
+			var validVehicle *domain.Vehicle
 			BeforeAll(func() {
 				validVehicle = testutils.MakeValidVehicle(providerID)
 			})
@@ -189,7 +189,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("provider attempts to update a single unregistered vehicle", func() {
-			var updatedVehicle *types.Vehicle
+			var updatedVehicle *domain.Vehicle
 			BeforeEach(func() {
 				updatedVehicle = testutils.MakeValidVehicle(providerID)
 			})
@@ -205,7 +205,7 @@ var _ = Describe("/vehicles", func() {
 					"failures": ConsistOf(MatchKeys(IgnoreExtras, Keys{
 						"error":             Equal("unregistered"),
 						"error_description": Equal("This device_id is unregistered"),
-						"error_details":     ConsistOf("device_id: no vehicle with specified ID registered for current provider"),
+						"error_details":     BeEmpty(),
 						"item":              MatchJSONObject(updatedVehicle),
 					})),
 				}))))
@@ -213,7 +213,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("provider attempts to update a single registered vehicle that they don't own", func() {
-			var updatedVehicle *types.Vehicle
+			var updatedVehicle *domain.Vehicle
 			BeforeEach(func() {
 				otherProvidersID := testutils.MakeUUIDExcluding(providerID)
 				otherProvidersVehicle := testutils.MakeValidVehicle(otherProvidersID)
@@ -234,9 +234,9 @@ var _ = Describe("/vehicles", func() {
 					"success": Equal(float64(0)),
 					"total":   Equal(float64(1)),
 					"failures": ConsistOf(MatchKeys(IgnoreExtras, Keys{
-						"error":             Equal("unregistered"),
-						"error_description": Equal("This device_id is unregistered"),
-						"error_details":     ConsistOf("device_id: no vehicle with specified ID registered for current provider"),
+						"error":             Equal("bad_param"),
+						"error_description": Equal("A validation error occurred"),
+						"error_details":     ConsistOf("provider_id: does not match user's provider ID"),
 						"item":              MatchJSONObject(updatedVehicle),
 					})),
 				}))))
@@ -244,14 +244,14 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("provider attempts to update a single registered vehicle that they own w/ a valid vehicle", func() {
-			var providersVehicles []*types.Vehicle
-			var unownedVehicles []*types.Vehicle
+			var providersVehicles []*domain.Vehicle
+			var unownedVehicles []*domain.Vehicle
 			var otherProvidersID uuid.UUID
-			var updatedVehicle *types.Vehicle
+			var updatedVehicle *domain.Vehicle
 			BeforeEach(func() {
 				nVehiclesNotOwned := 2
 				otherProvidersID = testutils.MakeUUIDExcluding(providerID)
-				unownedVehicles = make([]*types.Vehicle, 0, nVehiclesNotOwned)
+				unownedVehicles = make([]*domain.Vehicle, 0, nVehiclesNotOwned)
 				for i := 0; i < nVehiclesNotOwned; i++ {
 					unownedVehicles = append(unownedVehicles, testutils.MakeValidVehicle(otherProvidersID))
 				}
@@ -260,7 +260,7 @@ var _ = Describe("/vehicles", func() {
 				apiClient.AuthenticateAsProvider(providerID)
 
 				nVehiclesOwned := 2
-				providersVehicles = make([]*types.Vehicle, 0, nVehiclesOwned)
+				providersVehicles = make([]*domain.Vehicle, 0, nVehiclesOwned)
 				for i := 0; i < nVehiclesOwned; i++ {
 					providersVehicles = append(providersVehicles, testutils.MakeValidVehicle(providerID))
 				}
@@ -271,11 +271,11 @@ var _ = Describe("/vehicles", func() {
 
 				updatedVehicle = vehicleToUpdate
 				updatedVehicle.MaximumSpeed = 42
-				updatedVehicle.VehicleAttributes = map[string]any{"foo": "bar"}
-				updatedVehicle.PropulsionTypes = types.NewSet(types.PropulsionTypeHydrogenFuelCell, types.PropulsionTypeHybrid)
+				updatedVehicle.VehicleAttributes = domain.Record{map[string]any{"foo": "bar"}}
+				updatedVehicle.PropulsionTypes = domain.NewSet(domain.PropulsionTypeHydrogenFuelCell, domain.PropulsionTypeHybrid)
 			})
 
-			It("returns HTTP 204 No Content status", func() {
+			It("returns HTTP 200 OK status", func() {
 				Expect(apiClient.UpdateVehicles([]any{updatedVehicle})).To(HaveHTTPStatus(http.StatusOK))
 			})
 
@@ -325,7 +325,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("provider attempts to register a single vehicle that they don't own", func() {
-			var notProvidersVehicle *types.Vehicle
+			var notProvidersVehicle *domain.Vehicle
 			BeforeEach(func() {
 				notProvidersID := testutils.MakeUUIDExcluding(providerID)
 				notProvidersVehicle = testutils.MakeValidVehicle(notProvidersID)
@@ -350,7 +350,7 @@ var _ = Describe("/vehicles", func() {
 		})
 
 		When("provider attempts to fetch a registered vehicle that they don't own", Ordered, func() {
-			var notProvidersVehicle *types.Vehicle
+			var notProvidersVehicle *domain.Vehicle
 			BeforeAll(func() {
 				By("another provider registering a vehicle")
 				notProvidersID := testutils.MakeUUIDExcluding(providerID)
@@ -384,7 +384,7 @@ var _ = Describe("/vehicles", func() {
 			})
 
 			When("there are registered vehicles owned by the requesting provider", Ordered, func() {
-				var registeredVehicles []types.Vehicle
+				var registeredVehicles []domain.Vehicle
 				BeforeAll(func() {
 					for i := 0; i < 5; i++ {
 						vehicle := testutils.MakeValidVehicle(providerID)
@@ -425,14 +425,14 @@ var _ = Describe("/vehicles", func() {
 					})
 
 					It("allows user to page through full set of vehicles from first page by following next links", func() {
-						foundVehicles := make([]types.Vehicle, 0, len(registeredVehicles))
+						foundVehicles := make([]domain.Vehicle, 0, len(registeredVehicles))
 
 						firstPage := fetchFirstPage()
 						foundVehicles = append(foundVehicles, firstPage.Vehicles...)
 
 						next := firstPage.Links.Next
 						for next != "" {
-							page := readJSONBody[types.PaginatedVehiclesResponse](apiClient.Get(next))
+							page := readJSONBody[domain.PaginatedVehiclesResponse](apiClient.Get(next))
 
 							foundVehicles = append(foundVehicles, page.Vehicles...)
 							next = page.Links.Next
@@ -442,14 +442,14 @@ var _ = Describe("/vehicles", func() {
 					})
 
 					It("allows user to page through full set of vehicles from last page by following prev links", func() {
-						foundVehicles := make([]types.Vehicle, 0, len(registeredVehicles))
+						foundVehicles := make([]domain.Vehicle, 0, len(registeredVehicles))
 
 						lastPage := fetchLastPage()
 						foundVehicles = append(foundVehicles, lastPage.Vehicles...)
 
 						prev := lastPage.Links.Prev
 						for prev != "" {
-							page := readJSONBody[types.PaginatedVehiclesResponse](apiClient.Get(prev))
+							page := readJSONBody[domain.PaginatedVehiclesResponse](apiClient.Get(prev))
 							foundVehicles = append(foundVehicles, page.Vehicles...)
 							prev = page.Links.Prev
 						}

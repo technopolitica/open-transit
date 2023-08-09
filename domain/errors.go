@@ -1,6 +1,6 @@
 //go:generate go run github.com/abice/go-enum@v0.5.6 --marshal --sql
 
-package types
+package domain
 
 import (
 	"encoding/json"
