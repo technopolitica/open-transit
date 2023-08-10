@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/technopolitica/open-mobility/domain"
+	"github.com/technopolitica/open-mobility/internal/domain"
 )
 
 func NewVehicleRepository(conn DBConnection) domain.VehicleRepository {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/docker/go-connections/nat"
-	"github.com/technopolitica/open-mobility/db"
+	"github.com/technopolitica/open-mobility/internal/db"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"

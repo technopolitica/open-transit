@@ -18,8 +18,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
-	"github.com/technopolitica/open-mobility/e2e_tests/testutils"
-	"github.com/technopolitica/open-mobility/server"
+	"github.com/technopolitica/open-mobility/internal/server"
+	"github.com/technopolitica/open-mobility/test/testutils"
 )
 
 type TestServer struct {

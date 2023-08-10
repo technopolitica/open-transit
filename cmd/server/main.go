@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/technopolitica/open-mobility/server"
+	"github.com/technopolitica/open-mobility/internal/server"
 )
 
 func loadPublicKey() (publicKey *rsa.PublicKey, err error) {
