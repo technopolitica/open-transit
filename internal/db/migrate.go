@@ -9,7 +9,7 @@ import (
 )
 
 //go:embed migrations/*.sql
-var embedMigrations embed.FS
+var Migrations embed.FS
 
 func MigrateToLatest(ctx context.Context, connectionURL string) (err error) {
 	db, err := goose.OpenDBWithDriver("pgx", connectionURL)
@@ -28,7 +28,7 @@ func MigrateToLatest(ctx context.Context, connectionURL string) (err error) {
 		}
 	}()
 
-	goose.SetBaseFS(embedMigrations)
+	goose.SetBaseFS(Migrations)
 	err = goose.SetDialect("postgres")
 	if err != nil {
 		return fmt.Errorf("failed to set dialect: %w", err)
