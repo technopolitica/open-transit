@@ -44,9 +44,7 @@ CREATE TABLE IF NOT EXISTS vehicle (
     provider UUID NOT NULL CHECK (
         provider != '00000000-0000-0000-0000-000000000000'
     ),
-    data_provider UUID NOT NULL CHECK (
-        id != '00000000-0000-0000-0000-000000000000'
-    ),
+    data_provider UUID NOT NULL,
     vehicle_type TEXT NOT NULL REFERENCES vehicle_type (name) ON UPDATE CASCADE,
     attributes JSONB NOT NULL DEFAULT '{}' CHECK (
         jsonb_typeof(attributes) = 'object'
