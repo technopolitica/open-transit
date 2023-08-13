@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"strconv"
 
 	"github.com/pressly/goose/v3"
 )
@@ -11,7 +12,7 @@ import (
 //go:embed migrations/*.sql
 var Migrations embed.FS
 
-func MigrateToLatest(ctx context.Context, connectionURL string) (err error) {
+func MigrateTo(ctx context.Context, connectionURL string, version string) (err error) {
 	db, err := goose.OpenDBWithDriver("pgx", connectionURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect with database: %w", err)
@@ -33,6 +34,15 @@ func MigrateToLatest(ctx context.Context, connectionURL string) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to set dialect: %w", err)
 	}
-	err = goose.UpContext(ctx, db, "migrations")
+	if version == "latest" {
+		err = goose.UpContext(ctx, db, "migrations")
+		return
+	}
+	versionInt, err := strconv.ParseInt(version, 10, 0)
+	if err != nil {
+		err = fmt.Errorf("failed to parse version: %w", err)
+		return
+	}
+	err = goose.UpToContext(ctx, db, "migrations", versionInt)
 	return
 }

@@ -1,23 +1,25 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 	"github.com/technopolitica/open-mobility/internal/db"
 )
 
+var connectionURL = flag.String("db-url", "", "URL-formatted connection string to the DB to operate upon")
+
 func main() {
-	var connectionURL = flag.String("url", "", "URL-formatted connection string to the DB to operate upon")
+	ctx := context.Background()
 
 	flag.Parse()
 
 	if *connectionURL == "" {
-		fmt.Print("missing required -url param\n")
+		fmt.Print("missing required -db-url param\n")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -30,29 +32,23 @@ func main() {
 	}
 	command := args[0]
 
-	conn, err := goose.OpenDBWithDriver("pgx", *connectionURL)
+	if command != "migrate" {
+		fmt.Printf("unknown subcommand \"%s\"\n", command)
+		flag.Usage()
+		os.Exit(1)
+	}
+	migrateCmd := flag.NewFlagSet("migrate", flag.ExitOnError)
+	version := migrateCmd.String("to", "", "version to which the database should be migrated. May specify \"latest\" to migrate to the latest version.")
+
+	migrateCmd.Parse(args[1:])
+
+	if *version == "" {
+		fmt.Print("missing required parameter -to\n")
+		migrateCmd.Usage()
+		os.Exit(1)
+	}
+	err := db.MigrateTo(ctx, *connectionURL, *version)
 	if err != nil {
-		log.Fatalf("failed to connect with database: %v\n", err)
-	}
-
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Fatalf("failed to close database connection: %v\n", err)
-		}
-	}()
-
-	goose.SetBaseFS(db.Migrations)
-	err = goose.SetDialect("postgres")
-	if err != nil {
-		log.Fatalf("failed to set dialect: %s", err)
-	}
-
-	arguments := []string{}
-	if len(args) > 1 {
-		arguments = append(arguments, args[1:]...)
-	}
-
-	if err := goose.Run(command, conn, "migrations", arguments...); err != nil {
-		log.Fatalf("migrate %v: %v", command, err)
+		log.Fatalf("failed to run migration: %s\n", err)
 	}
 }

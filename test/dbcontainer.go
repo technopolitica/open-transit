@@ -3,16 +3,17 @@ package e2e_tests
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/docker/go-connections/nat"
-	"github.com/technopolitica/open-mobility/internal/db"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 type DBContainer struct {
-	container *postgres.PostgresContainer
+	container        *postgres.PostgresContainer
+	ConnectionString string
 }
 
 var dbConfig = struct {
@@ -25,26 +26,8 @@ var dbConfig = struct {
 	DBName:   "test",
 }
 
-type ConnectionURL struct {
-	Host     string
-	Port     nat.Port
-	Username string
-	Password string
-	DBName   string
-}
-
-func NewConnectionURL(host string, port nat.Port) ConnectionURL {
-	return ConnectionURL{
-		Host:     host,
-		Port:     port,
-		Username: dbConfig.Username,
-		Password: dbConfig.Password,
-		DBName:   dbConfig.DBName,
-	}
-}
-
-func (u ConnectionURL) String() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable", u.Username, u.Password, u.Host, u.Port.Int(), u.DBName)
+func NewConnectionURL(host string, port nat.Port) (*url.URL, error) {
+	return url.Parse(fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable", dbConfig.Username, dbConfig.Password, host, port.Int(), dbConfig.DBName))
 }
 
 var defaultPGPort = nat.Port("5432/tcp")
@@ -56,37 +39,30 @@ func StartDBContainer(ctx context.Context) (dbContainer DBContainer, err error) 
 		postgres.WithPassword(dbConfig.Password),
 		testcontainers.WithImage("docker.io/postgres:14-alpine"),
 		testcontainers.WithWaitStrategy(wait.ForSQL(defaultPGPort, "pgx", func(host string, port nat.Port) string {
-			return NewConnectionURL(host, port).String()
+			connectionURL, err := NewConnectionURL(host, port)
+			if err != nil {
+				panic(err)
+			}
+			return connectionURL.String()
 		})),
 	)
 	if err != nil {
 		err = fmt.Errorf("failed to initialize database server: %w", err)
 		return
 	}
-	dbContainer = DBContainer{container}
-	return
-}
 
-func (dbContainer DBContainer) ExternalConnectionURL(ctx context.Context) (connectionURL ConnectionURL, err error) {
-	host, err := dbContainer.container.Host(ctx)
+	host, err := container.Host(ctx)
 	if err != nil {
+		err = fmt.Errorf("failed to determine host: %w", err)
 		return
 	}
-	port, err := dbContainer.container.MappedPort(ctx, defaultPGPort)
+	port, err := container.MappedPort(ctx, defaultPGPort)
 	if err != nil {
+		err = fmt.Errorf("failed to determine port: %w", err)
 		return
 	}
-	connectionURL = NewConnectionURL(host, port)
-	return
-}
-
-func (dbContainer DBContainer) MigrateToLatest(ctx context.Context) (err error) {
-	connectionURL, err := dbContainer.ExternalConnectionURL(ctx)
-	if err != nil {
-		err = fmt.Errorf("failed to retrieve DB connection info: %w", err)
-		return
-	}
-	err = db.MigrateToLatest(ctx, connectionURL.String())
+	connectionURL, err := NewConnectionURL(host, port)
+	dbContainer = DBContainer{container: container, ConnectionString: connectionURL.String()}
 	return
 }
 

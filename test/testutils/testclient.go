@@ -69,13 +69,6 @@ func (client *TestClient) BaseURL() *url.URL {
 	return &copy
 }
 
-func (client *TestClient) Reset() {
-	*client = TestClient{
-		baseURL:    client.baseURL,
-		signingKey: client.signingKey,
-	}
-}
-
 func (client *TestClient) sendRequestWithDefaultHeaders(method string, endpoint *url.URL, body any) (res *http.Response) {
 	jsonBody, err := json.Marshal(body)
 	Expect(err).NotTo(HaveOccurred())

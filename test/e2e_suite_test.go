@@ -1,132 +1,69 @@
 package e2e_tests
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
+	"encoding/gob"
+	"encoding/pem"
 	"fmt"
-	"net/http/httptest"
+	"net"
+	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
-	"github.com/technopolitica/open-mobility/internal/server"
+	"github.com/onsi/gomega/gexec"
 	"github.com/technopolitica/open-mobility/test/testutils"
 )
 
-type TestServer struct {
-	dbContainer DBContainer
-	httpServer  *httptest.Server
+func writePublicKeyFile(publicKey *rsa.PublicKey) (filePath string, err error) {
+	file, err := os.CreateTemp("", "open-transit-public-key*.pem")
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	serializedKey := x509.MarshalPKCS1PublicKey(publicKey)
+	err = pem.Encode(file, &pem.Block{Type: "RSA PUBLIC KEY", Bytes: serializedKey})
+	filePath = file.Name()
+	return
 }
 
-func (ts TestServer) Close(ctx context.Context) {
-	ts.dbContainer.Terminate(ctx)
-	ts.httpServer.Close()
+func findOpenPort() (addr *net.TCPAddr, err error) {
+	addr, err = net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return
+	}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return
+	}
+	defer listener.Close()
+	addr = listener.Addr().(*net.TCPAddr)
+	return
 }
 
-func (ts TestServer) BaseURL() *url.URL {
-	url, err := url.Parse(ts.httpServer.URL)
-	if err != nil {
-		panic(fmt.Sprintf("invalid url %s", err))
-	}
-	return url
-}
-
-func StartTestServer(ctx context.Context, publicKey rsa.PublicKey) (testServer TestServer, err error) {
-	dbContainer, err := StartDBContainer(ctx)
-	if err != nil {
-		return
-	}
-	err = dbContainer.MigrateToLatest(ctx)
-	if err != nil {
-		err = fmt.Errorf("failed to migrate DB: %w", err)
-		return
-	}
-	dbConnectionURL, err := dbContainer.ExternalConnectionURL(ctx)
-	if err != nil {
-		err = fmt.Errorf("failed to obtain DB connection info: %w", err)
-		return
-	}
-	db, err := pgxpool.New(ctx, dbConnectionURL.String())
-	if err != nil {
-		err = fmt.Errorf("failed to connect to DB: %w", err)
-		return
-	}
-	testServer = TestServer{
-		dbContainer: dbContainer,
-		httpServer:  httptest.NewServer(server.New(db, publicKey)),
-	}
-	err = testServer.initialize(ctx)
-	if err != nil {
-		err = fmt.Errorf("failed to initialize server: %w", err)
+func pingHealthEndpoint(baseURL *url.URL) (err error) {
+	healthEndpoint := baseURL.JoinPath("health")
+	res, err := http.Get(healthEndpoint.String())
+	if err == nil && res.StatusCode != http.StatusOK {
+		err = fmt.Errorf("got unexpected http status code in response: %s", res.Status)
 	}
 	return
 }
 
-func (server TestServer) initialize(ctx context.Context) (err error) {
-	dbConnectionURL, err := server.DBConnectionURL(ctx)
-	if err != nil {
-		return
-	}
-	db, err := pgx.Connect(ctx, dbConnectionURL.String())
-	if err != nil {
-		err = fmt.Errorf("failed to open DB connection: %s", err)
-		return
-	}
-	_, err = db.Exec(ctx, fmt.Sprintf("CREATE DATABASE original_%[1]s WITH TEMPLATE %[1]s", dbConnectionURL.DBName))
-	if err != nil {
-		err = fmt.Errorf("failed to create test database copy")
-		return
-	}
-	return
-}
-
-func (server TestServer) DBConnectionURL(ctx context.Context) (connectionURL ConnectionURL, err error) {
-	return server.dbContainer.ExternalConnectionURL(ctx)
-}
-
-type x509EncodedKey struct {
-	rsa.PrivateKey
-}
-
-func (sd x509EncodedKey) MarshalJSON() (data []byte, err error) {
-	encodedKey := x509.MarshalPKCS1PrivateKey(&sd.PrivateKey)
-	if err != nil {
-		return
-	}
-	return json.Marshal(base64.StdEncoding.EncodeToString(encodedKey))
-}
-
-func (sd *x509EncodedKey) UnmarshalJSON(data []byte) (err error) {
-	var base64EncodedKey string
-	err = json.Unmarshal(data, &base64EncodedKey)
-	if err != nil {
-		return
-	}
-	encodedKey, err := base64.StdEncoding.DecodeString(base64EncodedKey)
-	if err != nil {
-		return
-	}
-	parsedKey, err := x509.ParsePKCS1PrivateKey(encodedKey)
-	if err != nil {
-		return
-	}
-	*sd = x509EncodedKey(x509EncodedKey{*parsedKey})
-	return
-}
-
-type setupData struct {
-	DBConnectionURL ConnectionURL
-	BaseURL         url.URL
-	PrivateKey      x509EncodedKey
+type suiteData struct {
+	DBConnectionURL string
+	APIBaseURL      *url.URL
+	PrivateKey      *rsa.PrivateKey
 }
 
 func TestE2E(t *testing.T) {
@@ -134,62 +71,87 @@ func TestE2E(t *testing.T) {
 	RunSpecs(t, "e2e")
 }
 
-var dbname string
-var dbConn *pgx.Conn
 var apiClient *testutils.TestClient
+var dbConn *pgx.Conn
 
 const RSA256BitSize = 128 * 8
 
 var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 	format.UseStringerRepresentation = true
 
+	DeferCleanup(gexec.CleanupBuildArtifacts)
+
+	dbContainer, err := StartDBContainer(ctx)
+	Expect(err).NotTo(HaveOccurred(), "failed to start DB")
+	dbConnectionString := dbContainer.ConnectionString
+
+	migrateBinaryPath, err := gexec.Build("github.com/technopolitica/open-mobility/cmd/migrate")
+	Expect(err).NotTo(HaveOccurred(), "failed to build migrate binary")
+	migrateCmd := exec.Command(
+		migrateBinaryPath,
+		"-db-url", dbConnectionString,
+		"migrate",
+		"-to", "latest")
+	migrateSession, err := gexec.Start(migrateCmd, GinkgoWriter, GinkgoWriter)
+	Expect(err).NotTo(HaveOccurred(), "failed to start migration command")
+	Eventually(migrateSession).Should(gexec.Exit(0))
+
 	privateKey, err := rsa.GenerateKey(rand.Reader, RSA256BitSize)
-	Expect(err).NotTo(HaveOccurred())
+	Expect(err).NotTo(HaveOccurred(), "failed to generate private/public key")
+	publicKeyFilePath, err := writePublicKeyFile(&privateKey.PublicKey)
+	Expect(err).NotTo(HaveOccurred(), "failed to write public key file")
 
-	testServer, err := StartTestServer(ctx, privateKey.PublicKey)
-	Expect(err).NotTo(HaveOccurred())
+	serverBinaryPath, err := gexec.Build("github.com/technopolitica/open-mobility/cmd/server")
+	Expect(err).NotTo(HaveOccurred(), "failed to build server binary")
 
-	DeferCleanup(func(ctx context.Context) {
-		dbConn.Close(ctx)
-		testServer.Close(ctx)
+	addr, err := findOpenPort()
+	Expect(err).NotTo(HaveOccurred(), "failed to find open port")
+	serverCmd := exec.Command(
+		serverBinaryPath,
+		"-port", fmt.Sprint(addr.Port),
+		"-db-url", dbConnectionString,
+		"-public-key", fmt.Sprintf("file://%s", publicKeyFilePath),
+	)
+	serverSession, err := gexec.Start(serverCmd, GinkgoWriter, GinkgoWriter)
+	Expect(err).NotTo(HaveOccurred(), "failed to start server")
+	DeferCleanup(func() {
+		serverSession.Terminate().Wait()
 	})
+	baseURL, err := url.Parse(fmt.Sprintf("http://%s", addr.String()))
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(func() error { return pingHealthEndpoint(baseURL) }).Should(Succeed())
 
-	dbConnectionURL, err := testServer.DBConnectionURL(ctx)
-	Expect(err).NotTo(HaveOccurred())
-	data, err := json.Marshal(setupData{
-		DBConnectionURL: dbConnectionURL,
-		BaseURL:         *testServer.BaseURL(),
-		PrivateKey:      x509EncodedKey{*privateKey},
-	})
-	Expect(err).NotTo(HaveOccurred())
-	return data
+	data := suiteData{
+		DBConnectionURL: dbConnectionString,
+		APIBaseURL:      baseURL,
+		PrivateKey:      privateKey,
+	}
+	output := bytes.NewBuffer(nil)
+	encoder := gob.NewEncoder(output)
+	err = encoder.Encode(data)
+	Expect(err).NotTo(HaveOccurred(), "failed to encode suite data")
+	return output.Bytes()
 }, func(ctx context.Context, data []byte) {
-	var sd setupData
-	err := json.Unmarshal(data, &sd)
-	Expect(err).NotTo(HaveOccurred())
+	decoder := gob.NewDecoder(bytes.NewBuffer(data))
+	var suiteData suiteData
+	err := decoder.Decode(&suiteData)
+	Expect(err).NotTo(HaveOccurred(), "failed to decode suite data")
 
-	conn, err := pgx.Connect(ctx, sd.DBConnectionURL.String())
-	Expect(err).NotTo(HaveOccurred())
-	dbConn = conn
-	dbname = sd.DBConnectionURL.DBName
+	dbConn, err = pgx.Connect(ctx, suiteData.DBConnectionURL)
+	Expect(err).NotTo(HaveOccurred(), "failed to connect to DB")
+	DeferCleanup(dbConn.Close)
 
-	apiClient = testutils.NewTestClient(sd.BaseURL, sd.PrivateKey.PrivateKey)
+	apiClient = testutils.NewTestClient(*suiteData.APIBaseURL, *suiteData.PrivateKey)
 })
 
-func ClearData(ctx context.Context, dbConn *pgx.Conn) (err error) {
+var _ = BeforeEach(OncePerOrdered, func(ctx context.Context) {
+	// Start a transaction for every single test and rollback at the end of each test
+	// to ensure isolation.
 	tx, err := dbConn.Begin(ctx)
-	if err != nil {
-		return
-	}
-	_, err = tx.Exec(ctx, fmt.Sprintf("DROP DATABASE %s", dbname))
-	if err != nil {
-		return
-	}
-	_, err = tx.Exec(ctx, fmt.Sprintf("CREATE DATABASE %[1]s WITH TEMPLATE original_%[1]s", dbname))
-	return
-}
+	Expect(err).NotTo(HaveOccurred(), "failed to start DB transaction")
+	DeferCleanup(tx.Rollback)
+})
 
 var _ = AfterEach(OncePerOrdered, func(ctx context.Context) {
-	ClearData(ctx, dbConn)
-	apiClient.Reset()
+	apiClient.Unauthenticate()
 })
