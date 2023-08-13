@@ -9,11 +9,8 @@ import (
 	"encoding/gob"
 	"encoding/pem"
 	"fmt"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -37,33 +34,27 @@ func writePublicKeyFile(publicKey *rsa.PublicKey) (filePath string, err error) {
 	return
 }
 
-func findOpenPort() (addr *net.TCPAddr, err error) {
-	addr, err = net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return
-	}
-	listener, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return
-	}
-	defer listener.Close()
-	addr = listener.Addr().(*net.TCPAddr)
-	return
-}
-
-func pingHealthEndpoint(baseURL *url.URL) (err error) {
-	healthEndpoint := baseURL.JoinPath("health")
-	res, err := http.Get(healthEndpoint.String())
-	if err == nil && res.StatusCode != http.StatusOK {
-		err = fmt.Errorf("got unexpected http status code in response: %s", res.Status)
-	}
-	return
-}
-
 type suiteData struct {
-	DBConnectionURL string
-	APIBaseURL      *url.URL
-	PrivateKey      *rsa.PrivateKey
+	DBConnectionString string
+	APIBaseURL         *url.URL
+	PrivateKey         *rsa.PrivateKey
+}
+
+func (dat *suiteData) Encode() (output []byte, err error) {
+	outputBuf := bytes.NewBuffer(nil)
+	encoder := gob.NewEncoder(outputBuf)
+	err = encoder.Encode(dat)
+	if err != nil {
+		return
+	}
+	output = outputBuf.Bytes()
+	return
+}
+
+func (dat *suiteData) Decode(data []byte) (err error) {
+	decoder := gob.NewDecoder(bytes.NewBuffer(data))
+	err = decoder.Decode(&dat)
+	return
 }
 
 func TestE2E(t *testing.T) {
@@ -81,63 +72,35 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 
 	DeferCleanup(gexec.CleanupBuildArtifacts)
 
-	dbContainer, err := StartDBContainer(ctx)
-	Expect(err).NotTo(HaveOccurred(), "failed to start DB")
-	dbConnectionString := dbContainer.ConnectionString
-
-	migrateBinaryPath, err := gexec.Build("github.com/technopolitica/open-mobility/cmd/migrate")
-	Expect(err).NotTo(HaveOccurred(), "failed to build migrate binary")
-	migrateCmd := exec.Command(
-		migrateBinaryPath,
-		"-db-url", dbConnectionString,
-		"migrate",
-		"-to", "latest")
-	migrateSession, err := gexec.Start(migrateCmd, GinkgoWriter, GinkgoWriter)
-	Expect(err).NotTo(HaveOccurred(), "failed to start migration command")
-	Eventually(migrateSession).Should(gexec.Exit(0))
+	dbServer, err := testutils.StartDBServer(ctx)
+	Expect(err).NotTo(HaveOccurred(), "failed to start database server")
+	DeferCleanup(dbServer.Terminate)
+	err = dbServer.MigrateToLatest(ctx)
+	Expect(err).NotTo(HaveOccurred(), "failed to migrate database to latest schema version")
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, RSA256BitSize)
 	Expect(err).NotTo(HaveOccurred(), "failed to generate private/public key")
 	publicKeyFilePath, err := writePublicKeyFile(&privateKey.PublicKey)
 	Expect(err).NotTo(HaveOccurred(), "failed to write public key file")
 
-	serverBinaryPath, err := gexec.Build("github.com/technopolitica/open-mobility/cmd/server")
-	Expect(err).NotTo(HaveOccurred(), "failed to build server binary")
-
-	addr, err := findOpenPort()
-	Expect(err).NotTo(HaveOccurred(), "failed to find open port")
-	serverCmd := exec.Command(
-		serverBinaryPath,
-		"-port", fmt.Sprint(addr.Port),
-		"-db-url", dbConnectionString,
-		"-public-key", fmt.Sprintf("file://%s", publicKeyFilePath),
-	)
-	serverSession, err := gexec.Start(serverCmd, GinkgoWriter, GinkgoWriter)
+	apiServer, err := testutils.StartAPIServer(ctx, dbServer.ConnectionString, fmt.Sprintf("file://%s", publicKeyFilePath))
 	Expect(err).NotTo(HaveOccurred(), "failed to start server")
-	DeferCleanup(func() {
-		serverSession.Terminate().Wait()
-	})
-	baseURL, err := url.Parse(fmt.Sprintf("http://%s", addr.String()))
-	Expect(err).NotTo(HaveOccurred())
-	Eventually(func() error { return pingHealthEndpoint(baseURL) }).Should(Succeed())
+	DeferCleanup(apiServer.Terminate)
 
-	data := suiteData{
-		DBConnectionURL: dbConnectionString,
-		APIBaseURL:      baseURL,
-		PrivateKey:      privateKey,
+	suiteData := suiteData{
+		DBConnectionString: dbServer.ConnectionString,
+		APIBaseURL:         apiServer.BaseURL,
+		PrivateKey:         privateKey,
 	}
-	output := bytes.NewBuffer(nil)
-	encoder := gob.NewEncoder(output)
-	err = encoder.Encode(data)
+	output, err := suiteData.Encode()
 	Expect(err).NotTo(HaveOccurred(), "failed to encode suite data")
-	return output.Bytes()
+	return output
 }, func(ctx context.Context, data []byte) {
-	decoder := gob.NewDecoder(bytes.NewBuffer(data))
 	var suiteData suiteData
-	err := decoder.Decode(&suiteData)
+	err := suiteData.Decode(data)
 	Expect(err).NotTo(HaveOccurred(), "failed to decode suite data")
 
-	dbConn, err = pgx.Connect(ctx, suiteData.DBConnectionURL)
+	dbConn, err = pgx.Connect(ctx, suiteData.DBConnectionString)
 	Expect(err).NotTo(HaveOccurred(), "failed to connect to DB")
 	DeferCleanup(dbConn.Close)
 
