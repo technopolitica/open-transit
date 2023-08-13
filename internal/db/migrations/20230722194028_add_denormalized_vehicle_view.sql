@@ -5,7 +5,7 @@ SELECT
     vehicle.external_id,
     vehicle.provider,
     vehicle.data_provider,
-    vehicle_type.name AS vehicle_type,
+    vehicle.vehicle_type,
     vehicle.attributes,
     vehicle.accessibility_attributes,
     vehicle.battery_capacity,
@@ -16,11 +16,10 @@ FROM vehicle AS vehicle
 CROSS JOIN LATERAL (
     SELECT ARRAY_AGG(propulsion_type.name) AS names_arr
     FROM vehicle_propulsion_type AS vpt
-    INNER JOIN propulsion_type ON propulsion_type.id = vpt.propulsion_type
+    INNER JOIN propulsion_type ON propulsion_type.name = vpt.propulsion_type
     WHERE vpt.vehicle = vehicle.id
     GROUP BY vehicle.id
-) AS propulsion_type
-INNER JOIN vehicle_type ON vehicle_type.id = vehicle.vehicle_type;
+) AS propulsion_type;
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION INSERT_DENORMALIZED_VEHICLE()
@@ -39,19 +38,18 @@ BEGIN
       fuel_capacity,
       maximum_speed
   )
-  SELECT
+  VALUES (
       NEW.id,
       NEW.external_id,
       NEW.provider,
       NEW.data_provider,
-      vehicle_type.id,
+      NEW.vehicle_type,
       NEW.attributes,
       NEW.accessibility_attributes,
       NEW.battery_capacity,
       NEW.fuel_capacity,
       NEW.maximum_speed
-  FROM vehicle_type
-  WHERE vehicle_type.name = NEW.vehicle_type;
+  );
   
   INSERT INTO vehicle_propulsion_type(
     vehicle,
@@ -59,9 +57,8 @@ BEGIN
   )
   SELECT
     NEW.id AS vehicle,
-    propulsion_type.id AS propulsion_type
-  FROM propulsion_type
-  WHERE propulsion_type.name = ANY(NEW.propulsion_types);
+    propulsion_type
+  FROM unnest(NEW.propulsion_types) AS propulsion_type;
   
   RETURN NEW;
 END
@@ -78,30 +75,17 @@ CREATE OR REPLACE FUNCTION UPDATE_DENORMALIZED_VEHICLE()
 RETURNS TRIGGER
 AS $$
 BEGIN
-  UPDATE vehicle SET (
-      external_id,
-      provider,
-      data_provider,
-      vehicle_type,
-      attributes,
-      accessibility_attributes,
-      battery_capacity,
-      fuel_capacity,
-      maximum_speed
-  ) = (
-    SELECT
-        NEW.external_id,
-        NEW.provider,
-        NEW.data_provider,
-        vehicle_type.id,
-        NEW.attributes,
-        NEW.accessibility_attributes,
-        NEW.battery_capacity,
-        NEW.fuel_capacity,
-        NEW.maximum_speed
-    FROM vehicle_type
-    WHERE vehicle_type.name = NEW.vehicle_type
-  ) WHERE id = NEW.id;
+  UPDATE vehicle SET
+      external_id = NEW.external_id,
+      provider = NEW.provider,
+      data_provider = NEW.data_provider,
+      vehicle_type = NEW.vehicle_type,
+      attributes = NEW.attributes,
+      accessibility_attributes = NEW.accessibility_attributes,
+      battery_capacity = NEW.battery_capacity,
+      fuel_capacity = NEW.fuel_capacity,
+      maximum_speed = NEW.maximum_speed
+  WHERE id = NEW.id;
   
   -- Remove all existing propulsion type associations for the vehicle and
   -- replace them with the new propulsion types.
@@ -114,9 +98,8 @@ BEGIN
   )
   SELECT
     NEW.id AS vehicle,
-    propulsion_type.id AS propulsion_type
-  FROM propulsion_type
-  WHERE propulsion_type.name = ANY(NEW.propulsion_types);
+    propulsion_type
+  FROM unnest(NEW.propulsion_types) AS propulsion_type;
   
   RETURN NEW;
 END

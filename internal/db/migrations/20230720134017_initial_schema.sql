@@ -1,9 +1,6 @@
 -- +goose Up
 CREATE TABLE IF NOT EXISTS vehicle_type (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid() CHECK (
-        id != '00000000-0000-0000-0000-000000000000'
-    ),
-    name TEXT NOT NULL UNIQUE CHECK (name != '')
+    name TEXT PRIMARY KEY UNIQUE CHECK (name != '')
 );
 
 INSERT INTO
@@ -23,10 +20,7 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS propulsion_type (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid() CHECK (
-        id != '00000000-0000-0000-0000-000000000000'
-    ),
-    name TEXT NOT NULL UNIQUE CHECK (name != '')
+    name TEXT PRIMARY KEY CHECK (name != '')
 );
 
 INSERT INTO
@@ -53,7 +47,7 @@ CREATE TABLE IF NOT EXISTS vehicle (
     data_provider UUID NOT NULL CHECK (
         id != '00000000-0000-0000-0000-000000000000'
     ),
-    vehicle_type UUID NOT NULL REFERENCES vehicle_type (id),
+    vehicle_type TEXT NOT NULL REFERENCES vehicle_type (name) ON UPDATE CASCADE,
     attributes JSONB NOT NULL DEFAULT '{}' CHECK (
         jsonb_typeof(attributes) = 'object'
     ),
@@ -67,6 +61,8 @@ CREATE TABLE IF NOT EXISTS vehicle (
 
 CREATE TABLE IF NOT EXISTS vehicle_propulsion_type (
     vehicle UUID NOT NULL REFERENCES vehicle (id),
-    propulsion_type UUID NOT NULL REFERENCES propulsion_type (id),
+    propulsion_type TEXT NOT NULL REFERENCES propulsion_type (
+        name
+    ) ON UPDATE CASCADE,
     PRIMARY KEY (vehicle, propulsion_type)
 );
