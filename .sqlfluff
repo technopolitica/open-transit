@@ -16,3 +16,6 @@ accessibility_attributes = '{}'
 battery_capacity = 0
 fuel_capacity = 0
 maximum_speed = 0
+
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = lower
