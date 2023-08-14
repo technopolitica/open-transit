@@ -14,14 +14,17 @@ import (
 const (
 	// ContextKeyAuth is a contextKey of type Auth.
 	ContextKeyAuth contextKey = iota
+	// ContextKeyRepository is a contextKey of type Repository.
+	ContextKeyRepository
 )
 
 var ErrInvalidcontextKey = errors.New("not a valid contextKey")
 
-const _contextKeyName = "auth"
+const _contextKeyName = "authrepository"
 
 var _contextKeyMap = map[contextKey]string{
-	ContextKeyAuth: _contextKeyName[0:4],
+	ContextKeyAuth:       _contextKeyName[0:4],
+	ContextKeyRepository: _contextKeyName[4:14],
 }
 
 // String implements the Stringer interface.
@@ -40,7 +43,8 @@ func (x contextKey) IsValid() bool {
 }
 
 var _contextKeyValue = map[string]contextKey{
-	_contextKeyName[0:4]: ContextKeyAuth,
+	_contextKeyName[0:4]:  ContextKeyAuth,
+	_contextKeyName[4:14]: ContextKeyRepository,
 }
 
 // ParsecontextKey attempts to convert a string to a contextKey.

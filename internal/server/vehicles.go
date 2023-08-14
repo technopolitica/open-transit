@@ -50,7 +50,7 @@ func parseListVehiclesParams(r *http.Request) (params ListVehiclesParams, errs [
 	return
 }
 
-func NewVehiclesRouter(env *Env) *chi.Mux {
+func NewVehiclesRouter() *chi.Mux {
 	vehiclesRouter := chi.NewRouter()
 	vehiclesRouter.Post("/", func(w http.ResponseWriter, r *http.Request) {
 		var vehicles []domain.Vehicle
@@ -67,15 +67,7 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		defer r.Body.Close()
 
 		ctx := r.Context()
-		conn, err := env.db.Acquire(ctx)
-		if err != nil {
-			log.Printf("failed to acquire db connection: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		defer conn.Release()
-		vehicleRepository := db.NewVehicleRepository(conn)
-
+		repository := GetRepository(r)
 		nServerErrors := 0
 		response := domain.BulkApiResponse[domain.Vehicle]{
 			Total: len(vehicles),
@@ -96,7 +88,7 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 				})
 				continue
 			}
-			err := vehicleRepository.InsertVehicle(ctx, vehicle)
+			err := repository.InsertVehicle(ctx, vehicle)
 
 			if err != nil && errors.Is(err, db.ErrConflict) {
 				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
@@ -151,15 +143,7 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		defer r.Body.Close()
 
 		ctx := r.Context()
-		conn, err := env.db.Acquire(ctx)
-		if err != nil {
-			log.Printf("failed to acquire db connection: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		defer conn.Release()
-		vehicleRepository := db.NewVehicleRepository(conn)
-
+		repository := GetRepository(r)
 		nServerErrors := 0
 		response := domain.BulkApiResponse[domain.Vehicle]{
 			Total: len(vehicles),
@@ -188,7 +172,7 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 				continue
 			}
 
-			err := vehicleRepository.UpdateVehicle(ctx, vehicle)
+			err := repository.UpdateVehicle(ctx, vehicle)
 
 			if err != nil && errors.Is(err, db.ErrNotFound) {
 				response.Failures = append(response.Failures, domain.FailureDetails[domain.Vehicle]{
@@ -240,18 +224,9 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		}
 
 		ctx := r.Context()
-		conn, err := env.db.Acquire(ctx)
-		if err != nil {
-			log.Printf("failed to acquire db connection: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		defer conn.Release()
-		// KLUDGE: can we do a multi-statement batch command here instead of acquiring a transaction?
-		vehicleRepository := db.NewVehicleRepository(conn)
-
+		repository := GetRepository(r)
 		auth := GetAuthInfo(r)
-		page, err := vehicleRepository.ListVehicles(ctx, domain.ListVehiclesParams{
+		page, err := repository.ListVehicles(ctx, domain.ListVehiclesParams{
 			ProviderID: auth.ProviderID,
 			Limit:      int32(params.Limit),
 			Offset:     int32(params.Offset),
@@ -319,17 +294,9 @@ func NewVehiclesRouter(env *Env) *chi.Mux {
 		vid := uuid.MustParse(chi.URLParam(r, "vid"))
 
 		ctx := r.Context()
-		conn, err := env.db.Acquire(ctx)
-		if err != nil {
-			log.Printf("failed to acquire db connection: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		defer conn.Release()
-		vehicleRepository := db.NewVehicleRepository(conn)
-
+		repository := GetRepository(r)
 		auth := GetAuthInfo(r)
-		vehicle, err := vehicleRepository.FetchVehicle(ctx, domain.FetchVehicleParams{
+		vehicle, err := repository.FetchVehicle(ctx, domain.FetchVehicleParams{
 			VehicleID:  vid,
 			ProviderID: auth.ProviderID,
 		})

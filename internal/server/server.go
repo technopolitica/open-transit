@@ -15,12 +15,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/technopolitica/open-mobility/internal/db"
 	"github.com/technopolitica/open-mobility/internal/domain"
 )
-
-type Env struct {
-	db *pgxpool.Pool
-}
 
 type authClaims struct {
 	jwt.RegisteredClaims
@@ -36,7 +33,16 @@ func GetAuthInfo(r *http.Request) (auth domain.AuthInfo) {
 	return
 }
 
-// ENUM(auth)
+func GetRepository(r *http.Request) (repo db.Repository) {
+	ctx := r.Context()
+	repo, ok := ctx.Value(ContextKeyRepository).(db.Repository)
+	if !ok {
+		panic("missing required repository")
+	}
+	return
+}
+
+// ENUM(auth, repository)
 type contextKey int
 
 func parseBearerToken(r *http.Request) (bearerToken string, err error) {
@@ -80,6 +86,29 @@ func checkAuthentication(r *http.Request, publicKey *rsa.PublicKey) (authInfo do
 	return
 }
 
+func database(dbConnPool *pgxpool.Pool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			conn, err := dbConnPool.Acquire(ctx)
+			if err != nil {
+				log.Printf("failed to acquire database connection: %s", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			defer conn.Release()
+			repo, err := db.NewRepository(ctx, conn.Conn())
+			if err != nil {
+				log.Printf("failed to construct repository: %s", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			r = r.WithContext(context.WithValue(ctx, ContextKeyRepository, repo))
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func authentication(publicKey *rsa.PublicKey) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,10 +146,9 @@ func New(db *pgxpool.Pool, publicKey rsa.PublicKey) *chi.Mux {
 	router.Use(middleware.Timeout(15 * time.Second))
 	router.Use(addHostToRequestURL)
 	router.Use(authentication(&publicKey))
+	router.Use(database(db))
 
-	env := Env{db}
-
-	vehiclesRouter := NewVehiclesRouter(&env)
+	vehiclesRouter := NewVehiclesRouter()
 	router.Mount("/vehicles", vehiclesRouter)
 
 	return router

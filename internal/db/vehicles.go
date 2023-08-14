@@ -13,10 +13,6 @@ import (
 	"github.com/technopolitica/open-mobility/internal/domain"
 )
 
-func NewVehicleRepository(conn DBConnection) domain.VehicleRepository {
-	return queries{conn}
-}
-
 func dtoFromVehicle(domainVehicle domain.Vehicle) VehicleDTO {
 	return VehicleDTO{
 		ID:                      domainVehicle.DeviceID,
@@ -59,8 +55,8 @@ func vehicleFromDTO(vehicle VehicleDTO) domain.Vehicle {
 //go:embed queries/fetch-vehicle.sql
 var fetchVehicleQuery string
 
-func (q queries) FetchVehicle(ctx context.Context, params domain.FetchVehicleParams) (vehicle domain.Vehicle, err error) {
-	rows, err := q.Query(ctx, fetchVehicleQuery, pgx.NamedArgs{"id": params.VehicleID, "provider": params.ProviderID})
+func (repo Repository) FetchVehicle(ctx context.Context, params domain.FetchVehicleParams) (vehicle domain.Vehicle, err error) {
+	rows, err := repo.Query(ctx, fetchVehicleQuery, pgx.NamedArgs{"id": params.VehicleID, "provider": params.ProviderID})
 	if err != nil {
 		err = fmt.Errorf("failed to execute query: %w", err)
 		return
@@ -86,8 +82,8 @@ var listVehiclesQuery string
 //go:embed queries/count-vehicles.sql
 var countVehiclesQuery string
 
-func (q queries) ListVehicles(ctx context.Context, arg domain.ListVehiclesParams) (page domain.Page[domain.Vehicle], err error) {
-	q.WithinTransaction(ctx, func(tx pgx.Tx) (err error) {
+func (repo Repository) ListVehicles(ctx context.Context, arg domain.ListVehiclesParams) (page domain.Page[domain.Vehicle], err error) {
+	repo.WithinTransaction(ctx, func(tx pgx.Tx) (err error) {
 		rows, err := tx.Query(ctx, listVehiclesQuery, pgx.NamedArgs{"provider": arg.ProviderID, "limit": arg.Limit, "offset": arg.Offset})
 		if err != nil {
 			return
@@ -109,9 +105,9 @@ func (q queries) ListVehicles(ctx context.Context, arg domain.ListVehiclesParams
 //go:embed queries/insert-vehicle.sql
 var insertVehicleQuery string
 
-func (q queries) InsertVehicle(ctx context.Context, vehicle domain.Vehicle) error {
+func (repo Repository) InsertVehicle(ctx context.Context, vehicle domain.Vehicle) error {
 	vehicleDTO := dtoFromVehicle(vehicle)
-	_, err := q.Exec(ctx, insertVehicleQuery, pgx.NamedArgs{
+	_, err := repo.Exec(ctx, insertVehicleQuery, pgx.NamedArgs{
 		"id":                       vehicleDTO.ID,
 		"provider":                 vehicleDTO.Provider,
 		"external_id":              vehicleDTO.ExternalID,
@@ -136,9 +132,9 @@ func (q queries) InsertVehicle(ctx context.Context, vehicle domain.Vehicle) erro
 //go:embed queries/update-vehicle.sql
 var updateVehicleQuery string
 
-func (q queries) UpdateVehicle(ctx context.Context, vehicle domain.Vehicle) error {
+func (repo Repository) UpdateVehicle(ctx context.Context, vehicle domain.Vehicle) error {
 	vehicleDTO := dtoFromVehicle(vehicle)
-	res, err := q.Exec(ctx, updateVehicleQuery, pgx.NamedArgs{
+	res, err := repo.Exec(ctx, updateVehicleQuery, pgx.NamedArgs{
 		"id":                       vehicleDTO.ID,
 		"provider":                 vehicleDTO.Provider,
 		"external_id":              vehicleDTO.ExternalID,
