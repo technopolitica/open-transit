@@ -12,8 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"github.com/google/uuid"
-	"github.com/technopolitica/open-mobility/internal/db"
-	"github.com/technopolitica/open-mobility/internal/domain"
+	"github.com/technopolitica/open-transit/internal/db"
+	"github.com/technopolitica/open-transit/internal/domain"
 )
 
 const MAX_RESULTS_LIMIT = 20

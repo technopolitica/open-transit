@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/technopolitica/open-mobility/internal/domain"
+	"github.com/technopolitica/open-transit/internal/domain"
 )
 
 func dtoFromVehicle(domainVehicle domain.Vehicle) VehicleDTO {

@@ -2,7 +2,7 @@ package db
 
 import (
 	"github.com/google/uuid"
-	"github.com/technopolitica/open-mobility/internal/domain"
+	"github.com/technopolitica/open-transit/internal/domain"
 )
 
 type VehicleDTO struct {

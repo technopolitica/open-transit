@@ -19,7 +19,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	"github.com/onsi/gomega/gexec"
-	"github.com/technopolitica/open-mobility/test/testutils"
+	"github.com/technopolitica/open-transit/test/testutils"
 )
 
 func writePublicKeyFile(publicKey *rsa.PublicKey) (filePath string, err error) {

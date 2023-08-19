@@ -15,7 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/technopolitica/open-mobility/internal/server"
+	"github.com/technopolitica/open-transit/internal/server"
 )
 
 func loadPublicKey(publicKeyURL *url.URL) (publicKey *rsa.PublicKey, err error) {

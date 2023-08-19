@@ -64,7 +64,7 @@ func StartDBServer(ctx context.Context) (server DBServer, err error) {
 }
 
 func (dbContainer DBServer) MigrateToLatest(ctx context.Context) (err error) {
-	migrateBinaryPath, err := gexec.Build("github.com/technopolitica/open-mobility/cmd/migrate")
+	migrateBinaryPath, err := gexec.Build("github.com/technopolitica/open-transit/cmd/migrate")
 	if err != nil {
 		err = fmt.Errorf("failed to build binary: %w", err)
 		return

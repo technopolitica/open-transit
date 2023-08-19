@@ -15,8 +15,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/technopolitica/open-mobility/internal/db"
-	"github.com/technopolitica/open-mobility/internal/domain"
+	"github.com/technopolitica/open-transit/internal/db"
+	"github.com/technopolitica/open-transit/internal/domain"
 )
 
 type authClaims struct {

@@ -1,4 +1,4 @@
-module github.com/technopolitica/open-mobility
+module github.com/technopolitica/open-transit
 
 go 1.20
 

@@ -10,9 +10,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
-	"github.com/technopolitica/open-mobility/internal/domain"
-	. "github.com/technopolitica/open-mobility/test/matchers"
-	"github.com/technopolitica/open-mobility/test/testutils"
+	"github.com/technopolitica/open-transit/internal/domain"
+	. "github.com/technopolitica/open-transit/test/matchers"
+	"github.com/technopolitica/open-transit/test/testutils"
 )
 
 func readJSONBody[T any](res *http.Response) (output T) {

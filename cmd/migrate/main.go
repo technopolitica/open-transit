@@ -8,7 +8,7 @@ import (
 	"os"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/technopolitica/open-mobility/internal/db"
+	"github.com/technopolitica/open-transit/internal/db"
 )
 
 var connectionURL = flag.String("db-url", "", "URL-formatted connection string to the DB to operate upon")

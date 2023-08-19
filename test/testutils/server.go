@@ -65,7 +65,7 @@ func (server APIServer) pingHealthEndpoint() (err error) {
 }
 
 func StartAPIServer(ctx context.Context, dbConnectionString string, publicKey string) (server APIServer, err error) {
-	serverBinaryPath, err := gexec.Build("github.com/technopolitica/open-mobility/cmd/server")
+	serverBinaryPath, err := gexec.Build("github.com/technopolitica/open-transit/cmd/server")
 	if err != nil {
 		err = fmt.Errorf("failed to build server binary: %w", err)
 		return

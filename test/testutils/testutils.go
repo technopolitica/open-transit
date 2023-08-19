@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	. "github.com/onsi/gomega"
-	"github.com/technopolitica/open-mobility/internal/domain"
+	"github.com/technopolitica/open-transit/internal/domain"
 )
 
 func MakeValidVehicle(provider uuid.UUID) *domain.Vehicle {
