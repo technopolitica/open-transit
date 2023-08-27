@@ -84,6 +84,8 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        ports:
+          - 5432:5432
     steps:
       - name: Restore go.mod & go.sum
         uses: actions/cache/restore@v3
@@ -128,6 +130,6 @@ jobs:
             --poll-progress-interval=30s \
             ./test/acceptance/acceptance.test \
             -- \
-            --db-url="postgres://postgres:postgres@database:5432/postgres?sslmode=disable" \
+            --db-url="postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" \
             --migrate-bin="$PWD/bin/open-transit-migrate" \
             --server-bin="$PWD/bin/open-transit-server"
