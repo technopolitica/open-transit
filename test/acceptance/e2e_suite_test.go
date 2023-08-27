@@ -1,4 +1,4 @@
-package e2e_tests
+package acceptance
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/gob"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"net/url"
 	"os"
@@ -16,10 +17,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2/dsl/decorators"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	"github.com/onsi/gomega/gexec"
-	"github.com/technopolitica/open-transit/test/testutils"
+	"github.com/technopolitica/open-transit/test/acceptance/testutils"
 )
 
 func writePublicKeyFile(publicKey *rsa.PublicKey) (filePath string, err error) {
@@ -35,9 +37,8 @@ func writePublicKeyFile(publicKey *rsa.PublicKey) (filePath string, err error) {
 }
 
 type suiteData struct {
-	DBConnectionString string
-	APIBaseURL         *url.URL
-	PrivateKey         *rsa.PrivateKey
+	APIBaseURL *url.URL
+	PrivateKey *rsa.PrivateKey
 }
 
 func (dat *suiteData) Encode() (output []byte, err error) {
@@ -57,9 +58,32 @@ func (dat *suiteData) Decode(data []byte) (err error) {
 	return
 }
 
+var dbURL, migrateBinaryPath, serverBinaryPath string
+
+func init() {
+	flag.StringVar(
+		&dbURL,
+		"db-url",
+		"",
+		"URL-encoded connection string to a postgres database. If not provided a postgres docker container will be started",
+	)
+	flag.StringVar(
+		&migrateBinaryPath,
+		"migrate-bin",
+		"",
+		"Path to the built migrate binary. If not provided a binary will be built automatically.",
+	)
+	flag.StringVar(
+		&serverBinaryPath,
+		"server-bin",
+		"",
+		"Path to the built server binary. If not provided a binary will be built automatically.",
+	)
+}
+
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "e2e")
+	RunSpecs(t, "Acceptance Tests", decorators.Label("integration"))
 }
 
 var apiClient *testutils.TestClient
@@ -72,10 +96,20 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 
 	DeferCleanup(gexec.CleanupBuildArtifacts)
 
-	dbServer, err := testutils.StartDBServer(ctx)
-	Expect(err).NotTo(HaveOccurred(), "failed to start database server")
-	DeferCleanup(dbServer.Terminate)
-	err = dbServer.MigrateToLatest(ctx)
+	if dbURL == "" {
+		dbServer, err := testutils.StartDBServer(ctx)
+		Expect(err).NotTo(HaveOccurred(), "failed to start database server")
+		DeferCleanup(dbServer.Terminate)
+		dbURL = dbServer.ConnectionString
+	}
+
+	if migrateBinaryPath == "" {
+		var err error
+		migrateBinaryPath, err = gexec.Build("github.com/technopolitica/open-transit/cmd/open-transit-migrate")
+		Expect(err).NotTo(HaveOccurred(), "failed to build migrate binary")
+	}
+
+	err := testutils.MigrateToLatest(ctx, migrateBinaryPath, dbURL)
 	Expect(err).NotTo(HaveOccurred(), "failed to migrate database to latest schema version")
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, RSA256BitSize)
@@ -83,14 +117,18 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 	publicKeyFilePath, err := writePublicKeyFile(&privateKey.PublicKey)
 	Expect(err).NotTo(HaveOccurred(), "failed to write public key file")
 
-	apiServer, err := testutils.StartAPIServer(ctx, dbServer.ConnectionString, fmt.Sprintf("file://%s", publicKeyFilePath))
+	if serverBinaryPath == "" {
+		var err error
+		serverBinaryPath, err = gexec.Build("github.com/technopolitica/open-transit/cmd/open-transit-server")
+		Expect(err).NotTo(HaveOccurred(), "failed to build server binary")
+	}
+	apiServer, err := testutils.StartAPIServer(ctx, serverBinaryPath, dbURL, fmt.Sprintf("file://%s", publicKeyFilePath))
 	Expect(err).NotTo(HaveOccurred(), "failed to start server")
 	DeferCleanup(apiServer.Terminate)
 
 	suiteData := suiteData{
-		DBConnectionString: dbServer.ConnectionString,
-		APIBaseURL:         apiServer.BaseURL,
-		PrivateKey:         privateKey,
+		APIBaseURL: apiServer.BaseURL,
+		PrivateKey: privateKey,
 	}
 	output, err := suiteData.Encode()
 	Expect(err).NotTo(HaveOccurred(), "failed to encode suite data")
@@ -100,7 +138,7 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 	err := suiteData.Decode(data)
 	Expect(err).NotTo(HaveOccurred(), "failed to decode suite data")
 
-	dbConn, err = pgx.Connect(ctx, suiteData.DBConnectionString)
+	dbConn, err = pgx.Connect(ctx, dbURL)
 	Expect(err).NotTo(HaveOccurred(), "failed to connect to DB")
 	DeferCleanup(dbConn.Close)
 

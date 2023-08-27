@@ -1,0 +1,133 @@
+name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Cache go.mod & go.sum
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            ./go.mod
+            ./go.sum
+          key: go-mod-${{ github.sha }}
+
+      - name: Setup
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "./go.mod"
+
+      - name: Lint
+        run: go vet ./...
+
+      - name: Run Unit Tests
+        run: |
+          go run github.com/onsi/ginkgo/v2/ginkgo \
+            --label-filter='!integration' \
+            --procs=2 \
+            --compilers=2 \
+            --require-suite \
+            --randomize-all \
+            --randomize-suites \
+            --fail-on-pending \
+            --keep-going \
+            --cover \
+            --coverprofile=cover.profile \
+            --race \
+            --trace \
+            --json-report=report.json \
+            --timeout=10m \
+            ./...
+
+      - name: Cache Server Binaries
+        id: cache-bin
+        uses: actions/cache@v3
+        with:
+          path: ./bin/
+          key: ${{ runner.os }}-bin-${{ github.sha }}
+
+      - name: Build Binaries
+        if: steps.cache-bin.outputs.cache-hit != 'true'
+        run: |
+          mkdir ./bin
+          go build -o ./bin ./...
+
+      - name: Cache Integration Test Binaries
+        id: cache-test-bin
+        uses: actions/cache@v3
+        with:
+          path: ./test/**/*.test
+          key: ${{ runner.os }}-integration-test-bin-${{ github.sha }}
+
+      - name: Build Integration Tests
+        if: steps.cache-test-bin.outputs.cache-hit != 'true'
+        run: |
+          go run github.com/onsi/ginkgo/v2/ginkgo build \
+            --require-suite \
+            --compilers=2 \
+            ./test/...
+
+  acceptance-tests:
+    needs: build
+    runs-on: ubuntu-22.04
+    services:
+      database:
+        image: "docker.io/postgres:14-alpine"
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Restore go.mod & go.sum
+        uses: actions/cache/restore@v3
+        with:
+          path: |
+            ./go.mod
+            ./go.sum
+          key: go-mod-${{ github.sha }}
+          fail-on-cache-miss: true
+
+      - name: Setup
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "./go.mod"
+
+      - name: Restore Binaries
+        uses: actions/cache/restore@v3
+        with:
+          path: ./bin/
+          key: ${{ runner.os }}-bin-${{ github.sha }}
+          fail-on-cache-miss: true
+
+      - name: Restore Test Binaries
+        uses: actions/cache/restore@v3
+        with:
+          path: ./test/**/*.test
+          key: ${{ runner.os }}-integration-test-bin-${{ github.sha }}
+          fail-on-cache-miss: true
+
+      - name: Run Acceptance Tests
+        run: |
+          go run github.com/onsi/ginkgo/v2/ginkgo \
+            --randomize-all \
+            --randomize-suites \
+            --fail-on-pending \
+            --keep-going \
+            --race \
+            --trace \
+            --json-report=report.json \
+            --timeout=30m \
+            --poll-progress-after=120s \
+            --poll-progress-interval=30s \
+            ./test/acceptance/acceptance.test \
+            -- \
+            --db-url="postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+            --migrate-bin="./bin/migrate" \
+            --server-bin="./bin/open-transit"

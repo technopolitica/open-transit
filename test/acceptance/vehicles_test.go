@@ -1,4 +1,4 @@
-package e2e_tests
+package acceptance
 
 import (
 	"encoding/json"
@@ -11,8 +11,8 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	"github.com/technopolitica/open-transit/internal/domain"
-	. "github.com/technopolitica/open-transit/test/matchers"
-	"github.com/technopolitica/open-transit/test/testutils"
+	. "github.com/technopolitica/open-transit/test/acceptance/matchers"
+	"github.com/technopolitica/open-transit/test/acceptance/testutils"
 )
 
 func readJSONBody[T any](res *http.Response) (output T) {
@@ -271,7 +271,7 @@ var _ = Describe("/vehicles", func() {
 
 				updatedVehicle = vehicleToUpdate
 				updatedVehicle.MaximumSpeed = 42
-				updatedVehicle.VehicleAttributes = domain.Record{map[string]any{"foo": "bar"}}
+				updatedVehicle.VehicleAttributes = domain.Record{Entries: map[string]any{"foo": "bar"}}
 				updatedVehicle.PropulsionTypes = domain.NewSet(domain.PropulsionTypeHydrogenFuelCell, domain.PropulsionTypeHybrid)
 			})
 

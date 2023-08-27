@@ -3,11 +3,9 @@ package testutils
 import (
 	"context"
 	"fmt"
-	"os/exec"
+	"time"
 
 	"github.com/docker/go-connections/nat"
-	. "github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega/gexec"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -34,13 +32,19 @@ func newConnectionString(host string, port nat.Port) string {
 
 var defaultPGPort = nat.Port("5432/tcp")
 
+const defaultTimeout = 15 * time.Minute
+
 func StartDBServer(ctx context.Context) (server DBServer, err error) {
+	timeout := defaultTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = deadline.Sub(time.Now())
+	}
 	container, err := postgres.RunContainer(ctx,
 		postgres.WithDatabase(dbConfig.DBName),
 		postgres.WithUsername(dbConfig.Username),
 		postgres.WithPassword(dbConfig.Password),
 		testcontainers.WithImage("docker.io/postgres:14-alpine"),
-		testcontainers.WithWaitStrategy(wait.ForSQL(defaultPGPort, "pgx", newConnectionString)),
+		testcontainers.WithWaitStrategyAndDeadline(timeout, wait.ForSQL(defaultPGPort, "pgx", newConnectionString)),
 	)
 	if err != nil {
 		err = fmt.Errorf("failed to start database server: %w", err)
@@ -60,35 +64,6 @@ func StartDBServer(ctx context.Context) (server DBServer, err error) {
 
 	connectionURL := newConnectionString(host, port)
 	server = DBServer{container: container, ConnectionString: connectionURL}
-	return
-}
-
-func (dbContainer DBServer) MigrateToLatest(ctx context.Context) (err error) {
-	migrateBinaryPath, err := gexec.Build("github.com/technopolitica/open-transit/cmd/migrate")
-	if err != nil {
-		err = fmt.Errorf("failed to build binary: %w", err)
-		return
-	}
-	migrateCmd := exec.Command(
-		migrateBinaryPath,
-		"-db-url", dbContainer.ConnectionString,
-		"migrate",
-		"-to", "latest")
-	session, err := gexec.Start(migrateCmd, GinkgoWriter, GinkgoWriter)
-	if err != nil {
-		err = fmt.Errorf("failed to run command: %w", err)
-		return
-	}
-	select {
-	case <-session.Exited:
-		if session.ExitCode() != 0 {
-			err = fmt.Errorf("exited with non-zero code %d", session.ExitCode())
-			return
-		}
-	case <-ctx.Done():
-		err = fmt.Errorf("context cancelled: %w", context.Cause(ctx))
-		return
-	}
 	return
 }
 

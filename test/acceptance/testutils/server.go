@@ -64,13 +64,7 @@ func (server APIServer) pingHealthEndpoint() (err error) {
 	return
 }
 
-func StartAPIServer(ctx context.Context, dbConnectionString string, publicKey string) (server APIServer, err error) {
-	serverBinaryPath, err := gexec.Build("github.com/technopolitica/open-transit/cmd/server")
-	if err != nil {
-		err = fmt.Errorf("failed to build server binary: %w", err)
-		return
-	}
-
+func StartAPIServer(ctx context.Context, serverBinaryPath string, dbConnectionString string, publicKey string) (server APIServer, err error) {
 	addr, err := findOpenPort()
 	if err != nil {
 		err = fmt.Errorf("failed to find open port: %w", err)
