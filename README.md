@@ -1,5 +1,8 @@
 # Open Transit: An Implementation of the Mobility Data Specification (MDS)
 
+[![Build Status](https://github.com/technopolitica/open-transit/actions/workflows/ci.yaml/badge.svg?branch=mainline)](https://github.com/technopolitica/open-transit/actions?query=workflow%3ACI+branch%3Amainline++)
+[![Go Report Card](https://goreportcard.com/badge/github.com/technopolitica/open-transit)](https://goreportcard.com/report/github.com/technopolitica/open-transit)
+
 Open Transit aims to be a complete implementation of the [Mobility Data Specification (MDS)](https://github.com/openmobilityfoundation/mobility-data-specification/tree/2.0.0) version 2.0, published by the [Open Mobility Foundation](https://www.openmobilityfoundation.org/).
 
 The goals of Open Transit are simple:
