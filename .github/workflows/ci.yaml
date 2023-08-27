@@ -128,6 +128,6 @@ jobs:
             --poll-progress-interval=30s \
             ./test/acceptance/acceptance.test \
             -- \
-            --db-url="postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" \
+            --db-url="postgres://postgres:postgres@database:5432/postgres?sslmode=disable" \
             --migrate-bin="$PWD/bin/open-transit-migrate" \
             --server-bin="$PWD/bin/open-transit-server"
