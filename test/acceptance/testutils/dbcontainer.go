@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/docker/go-connections/nat"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -19,15 +20,13 @@ type DBServer struct {
 var dbConfig = struct {
 	Username string
 	Password string
-	DBName   string
 }{
 	Username: "postgres",
 	Password: "postgres",
-	DBName:   "test",
 }
 
-func newConnectionString(host string, port nat.Port) string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable", dbConfig.Username, dbConfig.Password, host, port.Int(), dbConfig.DBName)
+func connectionString(config pgconn.Config) string {
+	return fmt.Sprintf("postgres://%s:%s@%s:%d?sslmode=disable", config.User, config.Password, config.Host, config.Port)
 }
 
 var defaultPGPort = nat.Port("5432/tcp")
@@ -40,11 +39,12 @@ func StartDBServer(ctx context.Context) (server DBServer, err error) {
 		timeout = deadline.Sub(time.Now())
 	}
 	container, err := postgres.RunContainer(ctx,
-		postgres.WithDatabase(dbConfig.DBName),
 		postgres.WithUsername(dbConfig.Username),
 		postgres.WithPassword(dbConfig.Password),
 		testcontainers.WithImage("docker.io/postgres:14-alpine"),
-		testcontainers.WithWaitStrategyAndDeadline(timeout, wait.ForSQL(defaultPGPort, "pgx", newConnectionString)),
+		testcontainers.WithWaitStrategyAndDeadline(timeout, wait.ForSQL(defaultPGPort, "pgx", func(host string, port nat.Port) string {
+			return connectionString(pgconn.Config{Host: host, Port: uint16(port.Int()), User: dbConfig.Username, Password: dbConfig.Password})
+		})),
 	)
 	if err != nil {
 		err = fmt.Errorf("failed to start database server: %w", err)
@@ -62,7 +62,7 @@ func StartDBServer(ctx context.Context) (server DBServer, err error) {
 		return
 	}
 
-	connectionURL := newConnectionString(host, port)
+	connectionURL := connectionString(pgconn.Config{Host: host, Port: uint16(port.Int()), User: dbConfig.Username, Password: dbConfig.Password})
 	server = DBServer{container: container, ConnectionString: connectionURL}
 	return
 }

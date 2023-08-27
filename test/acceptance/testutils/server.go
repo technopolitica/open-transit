@@ -2,10 +2,15 @@ package testutils
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"time"
 
@@ -14,8 +19,23 @@ import (
 )
 
 type APIServer struct {
-	BaseURL *url.URL
-	session *gexec.Session
+	BaseURL    *url.URL
+	PrivateKey *rsa.PrivateKey
+	session    *gexec.Session
+}
+
+const rsa256BitSize = 128 * 8
+
+func writePublicKeyFile(publicKey *rsa.PublicKey) (filePath string, err error) {
+	file, err := os.CreateTemp("", "open-transit-public-key*.pem")
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	serializedKey := x509.MarshalPKCS1PublicKey(publicKey)
+	err = pem.Encode(file, &pem.Block{Type: "RSA PUBLIC KEY", Bytes: serializedKey})
+	filePath = file.Name()
+	return
 }
 
 func findOpenPort() (addr *net.TCPAddr, err error) {
@@ -64,7 +84,18 @@ func (server APIServer) pingHealthEndpoint() (err error) {
 	return
 }
 
-func StartAPIServer(ctx context.Context, serverBinaryPath string, dbConnectionString string, publicKey string) (server APIServer, err error) {
+func StartAPIServer(ctx context.Context, serverBinaryPath string, dbConnectionString string) (server APIServer, err error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, rsa256BitSize)
+	if err != nil {
+		err = fmt.Errorf("failed to generate private/public key pair: %w", err)
+		return
+	}
+	publicKeyFilePath, err := writePublicKeyFile(&privateKey.PublicKey)
+	if err != nil {
+		err = fmt.Errorf("failed to write public key file: %w", err)
+		return
+	}
+
 	addr, err := findOpenPort()
 	if err != nil {
 		err = fmt.Errorf("failed to find open port: %w", err)
@@ -74,7 +105,7 @@ func StartAPIServer(ctx context.Context, serverBinaryPath string, dbConnectionSt
 		serverBinaryPath,
 		"-port", fmt.Sprint(addr.Port),
 		"-db-url", dbConnectionString,
-		"-public-key", publicKey,
+		"-public-key", fmt.Sprintf("file://%s", publicKeyFilePath),
 	)
 	session, err := gexec.Start(serverCmd, GinkgoWriter, GinkgoWriter)
 	if err != nil {
@@ -87,8 +118,9 @@ func StartAPIServer(ctx context.Context, serverBinaryPath string, dbConnectionSt
 		return
 	}
 	server = APIServer{
-		BaseURL: baseURL,
-		session: session,
+		PrivateKey: privateKey,
+		BaseURL:    baseURL,
+		session:    session,
 	}
 	err = server.waitToAcceptConnections(ctx)
 	return

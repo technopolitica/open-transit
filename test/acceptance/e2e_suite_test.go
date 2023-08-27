@@ -1,17 +1,9 @@
 package acceptance
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/gob"
-	"encoding/pem"
 	"flag"
 	"fmt"
-	"net/url"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -23,40 +15,6 @@ import (
 	"github.com/onsi/gomega/gexec"
 	"github.com/technopolitica/open-transit/test/acceptance/testutils"
 )
-
-func writePublicKeyFile(publicKey *rsa.PublicKey) (filePath string, err error) {
-	file, err := os.CreateTemp("", "open-transit-public-key*.pem")
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	serializedKey := x509.MarshalPKCS1PublicKey(publicKey)
-	err = pem.Encode(file, &pem.Block{Type: "RSA PUBLIC KEY", Bytes: serializedKey})
-	filePath = file.Name()
-	return
-}
-
-type suiteData struct {
-	APIBaseURL *url.URL
-	PrivateKey *rsa.PrivateKey
-}
-
-func (dat *suiteData) Encode() (output []byte, err error) {
-	outputBuf := bytes.NewBuffer(nil)
-	encoder := gob.NewEncoder(outputBuf)
-	err = encoder.Encode(dat)
-	if err != nil {
-		return
-	}
-	output = outputBuf.Bytes()
-	return
-}
-
-func (dat *suiteData) Decode(data []byte) (err error) {
-	decoder := gob.NewDecoder(bytes.NewBuffer(data))
-	err = decoder.Decode(&dat)
-	return
-}
 
 var dbURL, migrateBinaryPath, serverBinaryPath string
 
@@ -87,14 +45,22 @@ func TestE2E(t *testing.T) {
 }
 
 var apiClient *testutils.TestClient
-var dbConn *pgx.Conn
+var dbClient *testutils.DBClient
+var testDBName string
 
-const RSA256BitSize = 128 * 8
+func validateDBURL(url string) error {
+	dbConfig, err := pgx.ParseConfig(url)
+	if err != nil {
+		return err
+	}
+	if dbConfig.Database != "" {
+		return fmt.Errorf("database should not be specified")
+	}
+	return nil
+}
 
-var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
+var _ = SynchronizedBeforeSuite(func(ctx context.Context) {
 	format.UseStringerRepresentation = true
-
-	DeferCleanup(gexec.CleanupBuildArtifacts)
 
 	if dbURL == "" {
 		dbServer, err := testutils.StartDBServer(ctx)
@@ -102,57 +68,50 @@ var _ = SynchronizedBeforeSuite(func(ctx context.Context) []byte {
 		DeferCleanup(dbServer.Terminate)
 		dbURL = dbServer.ConnectionString
 	}
+	err := validateDBURL(dbURL)
+	Expect(err).NotTo(HaveOccurred(), "invalid db-url")
 
 	if migrateBinaryPath == "" {
 		var err error
 		migrateBinaryPath, err = gexec.Build("github.com/technopolitica/open-transit/cmd/open-transit-migrate")
 		Expect(err).NotTo(HaveOccurred(), "failed to build migrate binary")
+		DeferCleanup(gexec.CleanupBuildArtifacts)
 	}
-
-	err := testutils.MigrateToLatest(ctx, migrateBinaryPath, dbURL)
-	Expect(err).NotTo(HaveOccurred(), "failed to migrate database to latest schema version")
-
-	privateKey, err := rsa.GenerateKey(rand.Reader, RSA256BitSize)
-	Expect(err).NotTo(HaveOccurred(), "failed to generate private/public key")
-	publicKeyFilePath, err := writePublicKeyFile(&privateKey.PublicKey)
-	Expect(err).NotTo(HaveOccurred(), "failed to write public key file")
 
 	if serverBinaryPath == "" {
 		var err error
 		serverBinaryPath, err = gexec.Build("github.com/technopolitica/open-transit/cmd/open-transit-server")
 		Expect(err).NotTo(HaveOccurred(), "failed to build server binary")
+		DeferCleanup(gexec.CleanupBuildArtifacts)
 	}
-	apiServer, err := testutils.StartAPIServer(ctx, serverBinaryPath, dbURL, fmt.Sprintf("file://%s", publicKeyFilePath))
+
+	dbClient, err := testutils.NewDBClient(ctx, dbURL)
+	Expect(err).NotTo(HaveOccurred(), "failed to connect to database")
+	DeferCleanup(dbClient.Close)
+
+	err = dbClient.InitializeSourceDB(ctx, migrateBinaryPath)
+	Expect(err).NotTo(HaveOccurred(), "failed to initialize source database")
+	DeferCleanup(dbClient.CleanupSourceDB)
+}, func(ctx context.Context) {
+	var err error
+	dbClient, err = testutils.NewDBClient(ctx, dbURL)
+	Expect(err).NotTo(HaveOccurred(), "failed to create database client")
+	DeferCleanup(dbClient.Close)
+
+	testDB, err := dbClient.CreateTestDB(ctx)
+	testDBName = testDB.Name
+	DeferCleanup(func(ctx context.Context) error {
+		return dbClient.CleanupTestDB(ctx, testDBName)
+	})
+
+	apiServer, err := testutils.StartAPIServer(ctx, serverBinaryPath, testDB.ConnectionString)
 	Expect(err).NotTo(HaveOccurred(), "failed to start server")
 	DeferCleanup(apiServer.Terminate)
 
-	suiteData := suiteData{
-		APIBaseURL: apiServer.BaseURL,
-		PrivateKey: privateKey,
-	}
-	output, err := suiteData.Encode()
-	Expect(err).NotTo(HaveOccurred(), "failed to encode suite data")
-	return output
-}, func(ctx context.Context, data []byte) {
-	var suiteData suiteData
-	err := suiteData.Decode(data)
-	Expect(err).NotTo(HaveOccurred(), "failed to decode suite data")
-
-	dbConn, err = pgx.Connect(ctx, dbURL)
-	Expect(err).NotTo(HaveOccurred(), "failed to connect to DB")
-	DeferCleanup(dbConn.Close)
-
-	apiClient = testutils.NewTestClient(*suiteData.APIBaseURL, *suiteData.PrivateKey)
-})
-
-var _ = BeforeEach(OncePerOrdered, func(ctx context.Context) {
-	// Start a transaction for every single test and rollback at the end of each test
-	// to ensure isolation.
-	tx, err := dbConn.Begin(ctx)
-	Expect(err).NotTo(HaveOccurred(), "failed to start DB transaction")
-	DeferCleanup(tx.Rollback)
+	apiClient = testutils.NewTestClient(*apiServer.BaseURL, *apiServer.PrivateKey)
 })
 
 var _ = AfterEach(OncePerOrdered, func(ctx context.Context) {
+	dbClient.ResetTestDB(ctx, testDBName)
 	apiClient.Unauthenticate()
 })
